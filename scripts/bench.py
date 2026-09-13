@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import platform
 import statistics
+import subprocess
 import sys
 import time
 from dataclasses import replace
@@ -46,17 +47,48 @@ def percentile(values: list[float], p: float) -> float:
     return ordered[index]
 
 
+def gpu_info() -> dict[str, str]:
+    """Ask the driver what this GPU actually is.
+
+    Via ``nvidia-smi`` rather than a Python binding on purpose: pynvml/torch are
+    build-time dependencies the worker does not have, and "45 ms" against an
+    unnamed accelerator is exactly the unfalsifiable number §14 exists to
+    prevent. No GPU is a normal answer, not an error.
+    """
+    try:
+        out = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,driver_version,compute_cap",
+                "--format=csv,noheader",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    line = out.stdout.strip().splitlines()[0] if out.stdout.strip() else ""
+    if out.returncode != 0 or not line:
+        return {}
+    parts = [p.strip() for p in line.split(",")]
+    keys = ("gpu", "gpu memory", "nvidia driver", "compute capability")
+    return dict(zip(keys, parts, strict=False))
+
+
 def machine() -> dict[str, str]:
     info = {
         "platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
         "python": platform.python_version(),
         "cpu": platform.processor() or "unknown",
     }
+    info.update(gpu_info())
     try:
         import onnxruntime as ort
 
         info["onnxruntime"] = ort.__version__
-        info["providers"] = ", ".join(ort.get_available_providers())
+        info["providers available"] = ", ".join(ort.get_available_providers())
     except ImportError:
         info["onnxruntime"] = "not installed"
     return info
@@ -130,6 +162,27 @@ def main() -> int:
             "detect (batch=1)", lambda _: detector.infer([model_input]), args.iterations
         )
     )
+
+    # Batched throughput is the number the multi-camera claim in §5 actually
+    # rests on: the inference thread is shared, so N cameras arrive as one
+    # batch, not N sequential calls. Reported per frame so it compares directly
+    # with the row above.
+    batch_size = max(1, detector_cfg.max_batch)
+    per_frame_batched = 0.0
+    if batch_size > 1:
+        batch_images = [model_input] * batch_size
+        batched = bench_stage(
+            f"detect (batch={batch_size}, per frame)",
+            lambda _: detector.infer(batch_images),
+            max(20, args.iterations // 5),
+        )
+        per_frame_batched = batched["p95_ms"] / batch_size
+        results.append(
+            {
+                k: (v / batch_size if k.endswith("_ms") else v)
+                for k, v in batched.items()
+            }
+        )
 
     evqm = EVQM(EVQMConfig.from_mapping(cfg.as_dict()), "bench")
     frame_counter = {"n": 0}
@@ -264,7 +317,11 @@ def main() -> int:
         f"**Run:** {datetime.now(UTC).isoformat()}  ",
         f"**Profile:** `{args.profile}`  ",
         f"**Iterations:** {args.iterations}  ",
-        f"**Detector:** {detector.backend}, input {model_w}×{model_h}",
+        (
+            f"**Detector:** {detector.backend}, input {model_w}×{model_h}, "
+            f"weights `{detector_cfg.weights}`  "
+        ),
+        f"**Providers bound:** {', '.join(getattr(detector, 'providers', ['n/a']))}",
         "",
         "## Machine",
         "",
@@ -293,14 +350,39 @@ def main() -> int:
             f"{r['p95_ms']:.2f} | {r['max_ms']:.2f} |"
         )
 
+    analytics_fps = float(cfg.get("ingest.analytics_fps"))
     lines += [
         "",
         "## Derived",
         "",
         f"- Hot path p95 (detect + track + rules + risk): **{hot_path:.1f} ms**",
         f"- Single-camera analytics ceiling: **{fps_ceiling:.1f} fps**",
-        f"- Configured analytics rate: **{cfg.get('ingest.analytics_fps')} fps/camera**",
-        f"- Headroom: **{fps_ceiling / float(cfg.get('ingest.analytics_fps')):.1f}×**",
+        f"- Configured analytics rate: **{analytics_fps} fps/camera**",
+        f"- Headroom: **{fps_ceiling / analytics_fps:.1f}×**",
+    ]
+
+    if per_frame_batched > 0:
+        # §5's camera count. The stage work after detection is per camera and
+        # runs on its own thread, so the shared inference thread is the ceiling.
+        batched_fps = 1000.0 / per_frame_batched
+        lines += [
+            (
+                f"- Batched inference (batch={batch_size}): "
+                f"**{per_frame_batched:.1f} ms/frame → "
+                f"{batched_fps:.0f} fps aggregate**"
+            ),
+            (
+                f"- Cameras sustainable at {analytics_fps:g} fps: "
+                f"**{batched_fps / analytics_fps:.1f}**"
+            ),
+            "",
+            "The camera count is inference throughput divided by the per-camera",
+            "analytics rate. It is an upper bound: it assumes the stage threads keep",
+            "up, which they do here by two orders of magnitude, and it ignores decode",
+            "cost, which is the next thing to measure on a box with real cameras.",
+        ]
+
+    lines += [
         "",
         (
             "Enhancement is excluded from the hot-path figure because the `day` "
@@ -313,7 +395,10 @@ def main() -> int:
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines))
+    # encoding is explicit everywhere we touch text: Python defaults to the
+    # locale encoding, which is cp1252 on a Windows box, and this file contains
+    # "→" and "×". Without it `make bench` cannot write its own output there.
+    out.write_text("\n".join(lines), encoding="utf-8")
 
     print(f"{'stage':<28} {'p50':>8} {'p95':>8}")
     print("-" * 46)

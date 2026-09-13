@@ -99,13 +99,14 @@ Not installed on the machine this was built on, so Postgres, MinIO, Redis and Me
 - **Fallback in place:** every DB-free path is tested (341 tests pass with no infrastructure), and the worker falls back to fixture cameras defined in config when the database is unreachable.
 - **Risk if skipped:** migrations, seed, the live wall and the anchor service have never run end to end. This is the **single highest-value gate** — everything else is downstream of it.
 
-### Gate 2 — Model weights · *blocks real detection*
+### Gate 2 — Model weights · **CLOSED**
 
-`make models` needs network access to download YOLO11n (~10 MB) from GitHub, and `pip install ultralytics` (build-time only) to export it to ONNX.
+`make models` has been run. YOLO11n (11 MB) and YOLO11s (39 MB) are downloaded and exported to ONNX (opset 12, dynamic batch), and the two InsightFace models are extracted from the InsightFace bundle. `models/MANIFEST.json` verifies.
 
-- **Give me:** run `make models` on a connected machine, or confirm it is fine to `pip install ultralytics` here.
-- **Fallback in place:** `detector.backend: mock` produces scripted detections; every pipeline stage downstream is exercised and tested against it.
-- **Risk if skipped:** no real accuracy numbers, and `make bench` reports inference at 0 ms because it is benchmarking the mock.
+Two things were fixed in the process:
+
+- The fetcher saved the 127 MB InsightFace **zip** under the name `scrfd_500m.onnx` and recorded its hash in the manifest. The integrity check passed happily, because a SHA-256 tells you a file has not changed, not that it is the file it claims to be. It now extracts `det_500m.onnx` and `w600k_mbf.onnx` properly and leaves the gender/age and landmark nets in the archive, unshipped.
+- Every `read_text`/`write_text` in `scripts/` now passes `encoding="utf-8"`. Python defaults to the locale encoding, which is cp1252 on Windows, so `make bench` crashed writing its own report the moment the table contained a `→`.
 
 ### Gate 3 — Real labelled footage · *blocks `make eval`*
 
@@ -123,13 +124,29 @@ The entire premise is "works with existing CCTV". That has only been tested agai
 - **Fallback in place:** the watchdog and reconnect logic is unit-tested, and fixture streams exercise the same code path.
 - **Risk if skipped:** real cameras have quirks — H.264 baseline, B-frames, credentials in the URL, ONVIF discovery, 4CIF resolutions — that fixtures never reproduce.
 
-### Gate 5 — A GPU · *blocks the `bop` profile*
+### Gate 5 — A GPU · **CLOSED (CUDA), one sliver open (TensorRT)**
 
-The `bop` profile targets an RTX 3060+ with TensorRT FP16. This machine is CPU-only (Apple silicon, CoreML EP available).
+The `bop` profile now runs on a real NVIDIA GPU. Measured on an **RTX 3050 Laptop (4 GB, compute 8.6, driver 616.92)** with YOLO11s at 640×640 — every number below is from `make bench`, in [`docs/BENCH.md`](docs/BENCH.md):
 
-- **Give me:** access to a GPU box, or accept that the `bop` numbers stay theoretical.
-- **Fallback in place:** the `laptop` profile is the default and works on CPU; ONNX Runtime picks the best available provider automatically.
-- **Risk if skipped:** the 8–12 camera claim in §5 is unverified. The 1–2 camera laptop claim is real.
+| | batch=1 | batch=8, per frame |
+| --- | ---: | ---: |
+| CPU (Ryzen, ORT CPU EP) | 40.1 ms | 46.7 ms |
+| **CUDA EP** | **15.2 ms** | **12.9 ms → 76 fps aggregate** |
+
+**6.4 cameras at the profile's 12 fps**, on a laptop GPU a tier *below* the RTX 3060 the profile targets. The §5 claim of 8–12 cameras is no longer theoretical — it is bracketed from below by measured hardware.
+
+Three things had to be fixed to get here, and all three would have bitten a real deployment:
+
+1. **`fp16: true` was decorative.** It was parsed from config and never passed to a provider, so the profile that advertised FP16 ran FP32. It is now `trt_fp16_enable`.
+2. **The `bop` profile pointed at `yolo11s.trt`,** a serialised TensorRT engine. `ort.InferenceSession` cannot load one — it takes ONNX and builds the engine itself. Any attempt to run this profile would have failed at startup.
+3. **CUDA bound to nothing, silently.** The CUDA libraries ship as `nvidia-*` wheels that unpack somewhere Windows does not search for DLLs, so ORT reported a missing `cublasLt64_13.dll`, fell back to CPU, and ran perfectly — ten times slower than the hardware allows, with no obvious symptom. `onnxruntime.preload_dlls()` now runs before session creation.
+
+A fourth fix was found by measuring rather than by reading: with the GPU doing inference in 5.4 ms, **frame preprocessing became the bottleneck at 5.8 ms/frame** — three full-array temporaries and a fresh 39 MB allocation per batch. Rewritten to fill a reused NCHW buffer, verified bit-identical to the implementation it replaced. Batched throughput went from 53 to 90 fps on YOLO11n; that is where most of the table above comes from.
+
+**Still open — TensorRT EP.** Not a hardware problem, a packaging one: ONNX Runtime 1.30 links `nvinfer_10.dll` (TensorRT 10), and TensorRT 10 publishes no wheels for Python 3.14 — only TensorRT 11, which ORT does not yet link. So the ceiling above is CUDA's, not TensorRT's, and TensorRT FP16 would typically add another 1.3–2×.
+
+- **Give me:** Python 3.12 or 3.13 (where `tensorrt-cu13==10.x` installs), and `make bench PROFILE=bop` produces the TensorRT row with no code change — the provider list already prefers it.
+- **Fallback in place, and exercised:** the provider chain falls back TensorRT → CUDA → CPU on its own. Both fallbacks were hit for real on this machine and are visible in the run log, not just in a unit test.
 
 ### Gate 6 — Hyperledger Fabric · *blocks the real ledger backend*
 
