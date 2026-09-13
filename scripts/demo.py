@@ -30,8 +30,12 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parents[1]
-VENV_PY = ROOT / ".venv" / "bin" / "python"
-PY = str(VENV_PY if VENV_PY.exists() else sys.executable)
+_VENV_CANDIDATES = (
+    ROOT / ".venv" / "bin" / "python",  # POSIX venv layout
+    ROOT / ".venv" / "Scripts" / "python.exe",  # Windows venv layout
+)
+VENV_PY = next((p for p in _VENV_CANDIDATES if p.exists()), None)
+PY = str(VENV_PY if VENV_PY is not None else sys.executable)
 
 BOLD, DIM, GREEN, RED, RESET = "\033[1m", "\033[2m", "\033[32m", "\033[31m", "\033[0m"
 
@@ -87,7 +91,12 @@ def main() -> int:
 
     env = {
         **os.environ,
-        "PYTHONPATH": f"{ROOT / 'worker' / 'src'}:{ROOT / 'api' / 'src'}",
+        # os.pathsep, not a literal ":" -- Windows needs ";", and a worker or
+        # API subprocess launched with the wrong separator silently gets an
+        # empty PYTHONPATH (the whole string is treated as one nonexistent
+        # path) and fails at its very first `import drishti_api`/
+        # `import drishti_worker`, before either service prints a line.
+        "PYTHONPATH": os.pathsep.join([str(ROOT / "worker" / "src"), str(ROOT / "api" / "src")]),
     }
 
     print(f"\n{BOLD}DRISHTI-BOP — demo{RESET}")
