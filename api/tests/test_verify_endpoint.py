@@ -115,7 +115,10 @@ class TestAccessControl:
 
 class TestPublicSurface:
     def test_root_identifies_the_system(self, client):
-        body = client.get("/").json()
+        # "/" itself is reserved for the built dashboard's index.html in
+        # production (main.py mounts StaticFiles there) -- this info blob
+        # lives at "/api" so it never competes with that exact path.
+        body = client.get("/api").json()
         assert body["name"] == "DRISHTI-BOP"
         assert "26187" in body["problem_statement"]
 

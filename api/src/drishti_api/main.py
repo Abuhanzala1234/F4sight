@@ -99,7 +99,7 @@ for router in (
 app.include_router(ws.router)  # WebSocket paths are not versioned
 
 
-@app.get("/", include_in_schema=False)
+@app.get("/api", include_in_schema=False)
 async def root() -> dict[str, str]:
     return {
         "name": "DRISHTI-BOP",
@@ -112,6 +112,12 @@ async def root() -> dict[str, str]:
 
 
 # In production the dashboard is served by the API; in dev, Vite serves it.
+# This mount MUST be the exact path "/" and MUST be registered after every
+# other route in this file (StaticFiles with html=True serves index.html at
+# "/" itself) -- an app.get("/") route registered anywhere above this line
+# would win the exact "/" match ahead of the mount and the browser would get
+# raw JSON at the dashboard's own URL instead of the app. That exact bug
+# shipped once already: the info route above used to be at "/", not "/api".
 _dashboard = Path(__file__).resolve().parents[3] / "dashboard" / "dist"
 if _dashboard.exists():
     app.mount("/", StaticFiles(directory=str(_dashboard), html=True), name="dashboard")
