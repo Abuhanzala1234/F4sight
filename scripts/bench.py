@@ -21,6 +21,15 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+# Windows' console defaults to the system codepage (cp1252), not UTF-8, and
+# this script prints ✓/✗/→ in its progress output -- a plain print() of
+# any of them raises UnicodeEncodeError before the actual work even starts.
+# reconfigure() is a no-op everywhere already UTF-8; errors="replace" means a
+# console that truly cannot show a glyph gets a "?" instead of a crash.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker" / "src"))
 
 from drishti_worker.config import load_config
