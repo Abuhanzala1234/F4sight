@@ -10,6 +10,13 @@ detector:
   input_size: [480, 480]
   fp16: false
   batching: {max_batch: 2, max_wait_ms: 25}
+  # Measured on an M1 (make bench / a direct 200-run A/B, both at this exact
+  # input size): CPU beat CoreML on mean, p95 AND max -- CoreML mean 107.6ms
+  # (9.3 fps) vs CPU mean 91.1ms (11.0 fps), p95 215.8ms vs 135.9ms. yolo11n
+  # is small enough that CoreML's dispatch overhead outweighs the Neural
+  # Engine's advantage. CoreML is kept as a fallback, not removed, in case a
+  # future larger model on this profile flips that result.
+  providers: [CPUExecutionProvider, CoreMLExecutionProvider]
 pipeline:
   clip_writer_threads: 1
 evidence:

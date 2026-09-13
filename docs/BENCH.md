@@ -9,6 +9,11 @@
 **Detector:** onnx[CUDAExecutionProvider], input 640×640, weights `models/detect/yolo11s.onnx`  
 **Providers bound:** CUDAExecutionProvider, CPUExecutionProvider
 
+*(A separate `laptop`-profile, CPU-only run from the Apple M1 machine this
+project was also built on is folded into the GPU testing section at the
+bottom of this file, since the two runs measure different hardware and
+different profiles — neither number supersedes the other.)*
+
 ## Machine
 
 | | |
@@ -25,7 +30,9 @@
 
 ## Cold start
 
-Detector construction + 10 warmup inferences: **2.64 s**
+Detector construction + 10 warmup inferences: **2.64 s** (bop/CUDA, this run).
+1.49 s on the laptop/CPU run — see the machine table there for why: no
+engine build, just ORT graph optimisation.
 
 This is blocker #3. The worker does not report ready until warmup finishes,
 so the dashboard says *starting* rather than showing an empty live view.
@@ -63,3 +70,74 @@ cost, which is the next thing to measure on a box with real cameras.
 
 Enhancement is excluded from the hot-path figure because the `day` profile is an identity no-op, which is most frames in most deployments (§7.3).
 Evidence hashing and clip writing are off the critical path by design (§3.4).
+
+## For comparison: `laptop` profile, CPU-only, Apple M1
+
+A second real run, from the machine this project was also built on — full
+run, not extrapolated, 150 iterations:
+
+**Detector:** onnx[CPUExecutionProvider], input 480×480. Cold start (10 warmup
+inferences): **1.49 s**.
+
+| Stage | mean | p50 | p95 | max |
+| --- | ---: | ---: | ---: | ---: |
+| detect (batch=1) | 95.40 | 86.49 | 155.58 | 241.11 |
+| evqm sample | 2.38 | 0.00 | 1.53 | 338.22 |
+| enhance (day) @480x480 | 0.00 | 0.00 | 0.00 | 0.04 |
+| enhance (lowlight) @480x480 | 8.48 | 2.49 | 6.90 | 166.37 |
+| enhance (night) @480x480 | 2.80 | 2.80 | 5.72 | 6.08 |
+| enhance (fog) @480x480 | 21.74 | 22.53 | 26.54 | 27.83 |
+| enhance (degraded) @480x480 | 4.74 | 4.11 | 8.82 | 9.57 |
+| track update (4 objects) | 5.66 | 0.18 | 0.37 | 817.41 |
+| rules + geometry | 0.00 | 0.00 | 0.00 | 0.01 |
+| risk score | 0.01 | 0.01 | 0.01 | 0.03 |
+| evidence hash (JCS) | 0.09 | 0.09 | 0.10 | 0.19 |
+
+- Hot path p95 (detect + track + rules + risk): **156.0 ms**
+- Single-camera analytics ceiling: **6.4 fps**
+- Configured analytics rate: **6.0 fps/camera**
+- Headroom: **1.1×** — this is the number the CPU-vs-CoreML A/B below fixed
+  (it was 0.9×, actually short of the target, before that provider-order change).
+
+## GPU testing (Gate 5) — Apple M1, what was actually measured
+
+The `bop` profile targets an RTX 3060+ via TensorRT/CUDA, both NVIDIA-only —
+they have no ARM/Apple Silicon build and cannot be installed or tested on
+this machine (base M1, 8-core, 8 GB RAM). That half of Gate 5 stays
+genuinely untestable here; no software change closes it, only a real NVIDIA
+box does.
+
+What *is* real hardware acceleration on this machine is ONNX Runtime's
+**CoreMLExecutionProvider**, which dispatches to the Apple Neural Engine.
+That was tested directly: `yolo11n.onnx`, real weights, two independent
+back-to-back A/B runs (200 and 300 inferences per provider, at both the
+laptop profile's actual 480×480 input and the model's native 640×640),
+zero failures across ~1,000 total inferences on either provider this
+session:
+
+| Input | Provider | mean | p50 | p95 | max | fps |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 480×480 | CoreML | 107.6 ms | 93.8 ms | 215.8 ms | 557.3 ms | 9.3 |
+| 480×480 | CPU | **91.1 ms** | **84.9 ms** | **135.9 ms** | **332.3 ms** | **11.0** |
+| 640×640 | CoreML | 154.3 ms | 138.0 ms | 244.1 ms | 530.1 ms | 6.5 |
+| 640×640 | CPU | 149.1 ms | 138.6 ms | 229.9 ms | 357.3 ms | 6.7 |
+
+**Finding: CPU beat CoreML at both sizes** — on mean, p95, and worst-case
+max. `yolo11n` is small enough that CoreML's model-partitioning/dispatch
+overhead (only 326 of 410 graph nodes were assigned to the Neural Engine;
+the rest fell back to CPU inside the same run, visible in ORT's own log)
+outweighs whatever the Neural Engine saves on the part it does run.
+Consequence: `config/profiles/laptop.yaml` now pins `providers:
+[CPUExecutionProvider, CoreMLExecutionProvider]` for this profile — CPU
+first, CoreML kept only as a fallback — which is why the full-pipeline
+numbers above already reflect it. Before this fix, the laptop profile's
+detect stage alone had **0.9× headroom against its own configured 6 fps
+target** (a real, measured deficit); after, it has 1.1×.
+
+A different, unresolved finding from earlier live-camera work (documented
+in the project's hard-gates history) was CoreML throwing intermittent
+`Unable to compute the prediction` runtime errors under sustained live
+inference. That did **not** reproduce in either 480×480 or 640×640 batch
+run here (0/500 failures on CoreML across both), so it looks contention- or
+duration-dependent rather than a simple per-call fault — not fully
+root-caused, but no longer blocking anything now that CPU is the default.

@@ -10,8 +10,11 @@ models/
 # Media
 recordings/
 infra/fixtures/*.mp4
-eval/clips/
 spool/
+
+# Raw MOT16 downloads used ONCE to cut eval/clips/*.mp4 (scripts/evaluate.py
+# only ever reads eval/clips/, never these) -- scratch, not shipped.
+eval/_source/
 
 # Python
 __pycache__/

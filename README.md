@@ -89,71 +89,63 @@ It drives a synthetic intruder through the real pipeline — track, geometry, ru
 
 ## Hard gates
 
-**Everything below is something this repository cannot produce for itself.** Each one is a real external dependency — hardware, footage, credentials, or a decision. The system is built so that *none of them block the demo*: there is a working fallback for every single item. But the fallback is not the real thing, and here is exactly what the real thing needs.
+**Everything below is something this repository could not have produced for itself.** Each one is a real external dependency — hardware, footage, credentials, or a decision. The system is built so that *none of them block the demo*: there is a working fallback for every single item. Six of the nine are closed with a live, verified run; Gate 7 is a set of decisions rather than a pass/fail; Fabric and face matching remain genuinely open, and are named as such below.
 
-### Gate 1 — Docker · *blocks `make up`, `make demo`*
+### Gate 1 — Docker · ✅ closed
 
-Not installed on the machine this was built on, so Postgres, MinIO, Redis and MediaMTX have never actually been started.
+Postgres, MinIO, Redis and MediaMTX have all been started and run together live. Two real upstream compatibility breaks were hit and fixed along the way: Docker Hub now requires a login even for anonymous `minio/minio` pulls (switched to the `quay.io/minio/*` mirrors, pinned), and MediaMTX renamed its `rtspTransports` config field to `protocols` between versions (found by extracting the shipped image's own default config). A third gap was closed after that: the MediaMTX image is a scratch-based static binary with no shell and no ffmpeg, so it could never actually run the fixture-camera `runOnInit` commands in `infra/mediamtx.yml` — the three seeded fixture cameras looked configured but never carried real video. Fixed with a dedicated `fixture-streamer` sidecar container (plain ffmpeg, looping the local MP4s in over RTSP/TCP); verified live via `ffprobe` against all three RTSP paths and a real `200` HLS manifest fetch.
 
-- **Give me:** Docker Desktop installed, or run `make up` yourself and paste the output.
-- **Fallback in place:** every DB-free path is tested (341 tests pass with no infrastructure), and the worker falls back to fixture cameras defined in config when the database is unreachable.
-- **Risk if skipped:** migrations, seed, the live wall and the anchor service have never run end to end. This is the **single highest-value gate** — everything else is downstream of it.
+### Gate 2 — Model weights · ✅ closed
 
-### Gate 2 — Model weights · **CLOSED**
+`make models` has been run on two independent machines. YOLO11n (11 MB) and YOLO11s (39 MB) are downloaded and exported to ONNX (opset 12, dynamic batch) and verified against real inference; the two InsightFace models are extracted from the InsightFace bundle; `models/MANIFEST.json` verifies.
 
-`make models` has been run. YOLO11n (11 MB) and YOLO11s (39 MB) are downloaded and exported to ONNX (opset 12, dynamic batch), and the two InsightFace models are extracted from the InsightFace bundle. `models/MANIFEST.json` verifies.
-
-Two things were fixed in the process:
+Two bugs were caught and fixed in the process:
 
 - The fetcher saved the 127 MB InsightFace **zip** under the name `scrfd_500m.onnx` and recorded its hash in the manifest. The integrity check passed happily, because a SHA-256 tells you a file has not changed, not that it is the file it claims to be. It now extracts `det_500m.onnx` and `w600k_mbf.onnx` properly and leaves the gender/age and landmark nets in the archive, unshipped.
 - Every `read_text`/`write_text` in `scripts/` now passes `encoding="utf-8"`. Python defaults to the locale encoding, which is cp1252 on Windows, so `make bench` crashed writing its own report the moment the table contained a `→`.
 
-### Gate 3 — Real labelled footage · *blocks `make eval`*
+### Gate 3 — Real labelled footage · ✅ closed (small sample)
 
-The evaluation set (§15) needs ≥ 40 clips with ground truth: day, dusk, night, fog, rain-on-lens, crowd, vehicle, **empty scenes**, and two deliberate tamper clips.
+No 40-clip ground-truth set exists — that would need actual border-post footage this project never had access to. Instead, `eval/clips/` holds four real clips from **MOT16** (a public, directly-downloadable pedestrian-tracking benchmark), with ground-truth zones placed by tracing real tracked trajectories mathematically rather than eyeballing frames. Honest numbers — precision 0.222, recall 0.667, 0.00 false-alerts/idle-hour, per-clip breakdown, and explicit limitations — are in [`docs/EVAL.md`](docs/EVAL.md). This is a small-sample proof that the measurement pipeline itself is correct, not a claim of production accuracy.
 
-- **Give me:** clips in `eval/clips/` plus `eval/labels.jsonl`. Even 10 clips would let me report honest numbers. Border-adjacent CCTV, campus perimeter footage, or any fixed-camera outdoor video works.
-- **Fallback in place:** `make fixtures` synthesises three clips with OpenCV — enough to prove the pipeline, not enough to measure it.
-- **Risk if skipped:** **no defensible precision/recall figures.** The targets in §14 stay aspirations. A judge asking "how accurate is it?" gets an honest "we have not measured it on real footage", which is a weak answer.
+### Gate 4 — A real RTSP camera · ✅ closed
 
-### Gate 4 — A real RTSP camera · *blocks the P1 claim*
+Tested against a real, live camera: an Android phone running the IP Webcam app, pulled by MediaMTX exactly like any IP camera would be (`infra/mediamtx.yml`'s `phone-cam` path), with real detection, tracking, and alerts generated from it. One real operational finding from that run: orientation matters more than expected — sideways (portrait) video gave person-detection confidence ≈0.31, below the 0.40 production threshold and silently dropped; landscape gave ≈0.82. Worth remembering for any future live demo setup.
 
-The entire premise is "works with existing CCTV". That has only been tested against MediaMTX replaying MP4s.
+### Gate 5 — A GPU · ✅ closed (CUDA + CoreML measured), one sliver open (TensorRT)
 
-- **Give me:** one RTSP URL (any IP camera, even a phone running an RTSP server app), or confirmation you have tested against one.
-- **Fallback in place:** the watchdog and reconnect logic is unit-tested, and fixture streams exercise the same code path.
-- **Risk if skipped:** real cameras have quirks — H.264 baseline, B-frames, credentials in the URL, ONVIF discovery, 4CIF resolutions — that fixtures never reproduce.
+The `bop` profile targets an RTX 3060+ with TensorRT FP16. This has now been tested on two real machines from two different angles, and both A/B comparisons are real `make bench` runs, not estimates.
 
-### Gate 5 — A GPU · **CLOSED (CUDA), one sliver open (TensorRT)**
+**Apple M1 (CPU vs. CoreML):** TensorRT/CUDA are NVIDIA-only and cannot run on Apple Silicon at all — that part of the gate could never close here. What *can* run — ONNX Runtime's CoreMLExecutionProvider, dispatching to the Apple Neural Engine — was benchmarked: ~1,000 inferences of `yolo11n.onnx` across two input sizes, full numbers in [`docs/BENCH.md`](docs/BENCH.md). Result: **CPU beat CoreML** on this model — CoreML only assigns 326 of 410 graph nodes to the Neural Engine, and dispatch overhead outweighs the gain for a model this small. `config/profiles/laptop.yaml` now pins CPU ahead of CoreML as a result, which closed a real, measured deficit: the laptop profile's detect stage went from 0.9× headroom against its 6 fps target (short of it) to 1.1×.
 
-The `bop` profile now runs on a real NVIDIA GPU. Measured on an **RTX 3050 Laptop (4 GB, compute 8.6, driver 616.92)** with YOLO11s at 640×640 — every number below is from `make bench`, in [`docs/BENCH.md`](docs/BENCH.md):
+**RTX 3050 Laptop (CPU vs. CUDA), the `bop` profile's actual target family:** measured at 4 GB VRAM, compute 8.6, driver 616.92, YOLO11s at 640×640:
 
 | | batch=1 | batch=8, per frame |
 | --- | ---: | ---: |
 | CPU (Ryzen, ORT CPU EP) | 40.1 ms | 46.7 ms |
 | **CUDA EP** | **15.2 ms** | **12.9 ms → 76 fps aggregate** |
 
-**6.4 cameras at the profile's 12 fps**, on a laptop GPU a tier *below* the RTX 3060 the profile targets. The §5 claim of 8–12 cameras is no longer theoretical — it is bracketed from below by measured hardware.
+**6.4 cameras at the profile's 12 fps**, on a laptop GPU a tier *below* the RTX 3060 the profile targets — the §5 claim of 8–12 cameras is no longer theoretical, it is bracketed from below by measured hardware.
 
-Three things had to be fixed to get here, and all three would have bitten a real deployment:
+Three bugs had to be fixed to get the CUDA number, and all three would have bitten a real deployment silently:
 
 1. **`fp16: true` was decorative.** It was parsed from config and never passed to a provider, so the profile that advertised FP16 ran FP32. It is now `trt_fp16_enable`.
 2. **The `bop` profile pointed at `yolo11s.trt`,** a serialised TensorRT engine. `ort.InferenceSession` cannot load one — it takes ONNX and builds the engine itself. Any attempt to run this profile would have failed at startup.
 3. **CUDA bound to nothing, silently.** The CUDA libraries ship as `nvidia-*` wheels that unpack somewhere Windows does not search for DLLs, so ORT reported a missing `cublasLt64_13.dll`, fell back to CPU, and ran perfectly — ten times slower than the hardware allows, with no obvious symptom. `onnxruntime.preload_dlls()` now runs before session creation.
 
-A fourth fix was found by measuring rather than by reading: with the GPU doing inference in 5.4 ms, **frame preprocessing became the bottleneck at 5.8 ms/frame** — three full-array temporaries and a fresh 39 MB allocation per batch. Rewritten to fill a reused NCHW buffer, verified bit-identical to the implementation it replaced. Batched throughput went from 53 to 90 fps on YOLO11n; that is where most of the table above comes from.
+A fourth fix came from measuring rather than reading: with the GPU doing inference in 5.4 ms, **frame preprocessing became the bottleneck at 5.8 ms/frame** — three full-array temporaries and a fresh 39 MB allocation per batch. Rewritten to fill a reused NCHW buffer, verified bit-identical to the implementation it replaced. Batched throughput went from 53 to 90 fps on YOLO11n; that is where most of the table above comes from.
 
-**Still open — TensorRT EP.** Not a hardware problem, a packaging one: ONNX Runtime 1.30 links `nvinfer_10.dll` (TensorRT 10), and TensorRT 10 publishes no wheels for Python 3.14 — only TensorRT 11, which ORT does not yet link. So the ceiling above is CUDA's, not TensorRT's, and TensorRT FP16 would typically add another 1.3–2×.
+**Still open — TensorRT EP specifically.** Not a hardware problem, a packaging one: ONNX Runtime 1.30 links `nvinfer_10.dll` (TensorRT 10), and TensorRT 10 publishes no wheels for Python 3.14 — only TensorRT 11, which ORT does not yet link. The CUDA ceiling above is real and closes the gate's substance (a GPU accelerates this pipeline, measured, on the target hardware family); TensorRT FP16 on top would typically add another 1.3–2×.
 
 - **Give me:** Python 3.12 or 3.13 (where `tensorrt-cu13==10.x` installs), and `make bench PROFILE=bop` produces the TensorRT row with no code change — the provider list already prefers it.
-- **Fallback in place, and exercised:** the provider chain falls back TensorRT → CUDA → CPU on its own. Both fallbacks were hit for real on this machine and are visible in the run log, not just in a unit test.
+- **Fallback in place, and exercised on both machines:** the provider chain falls back TensorRT → CUDA → CoreML → CPU on its own, and every fallback named above was hit for real, visible in the run log, not just asserted in a unit test.
 
-### Gate 6 — Hyperledger Fabric · *blocks the real ledger backend*
+### Gate 6 — Hyperledger Fabric · ❌ open, untested
 
 `make fabric-up` needs Docker plus `fabric-samples` (~2 GB) and Go.
 
 - **Give me:** Docker + `./install-fabric.sh docker samples binary`, then `make fabric-up`.
-- **Fallback in place:** the mock ledger is a **real append-only hash-chained log** that detects tampering and names the broken entry. It exercises the identical code path; switching is one config line.
+- **Fallback in place:** the mock ledger is a **real append-only hash-chained log** that detects tampering and names the broken entry. It exercises the identical code path; switching is one config line. It has been run live and caught real corruption during this project's own debugging (see the evidence-hash bug below) — the tamper-evidence design did its job.
 - **Risk if skipped:** the word "blockchain" in the problem statement is answered by a chained JSONL file rather than Fabric. Defensible, but weaker in the room.
 
 ### Gate 7 — Decisions only you can make
@@ -162,14 +154,16 @@ A fourth fix was found by measuring rather than by reading: with the GPU doing i
 | --- | --- | --- |
 | **AGPL vs Apache** | YOLO11 (AGPL-3.0) | If the deploying org rejects AGPL, set `detector.backend: rtdetr` — Apache-2.0, ~2 points mAP lower, no other change |
 | **Face analytics** | Disabled | It is the answer to the privacy question. Turning it on is a policy decision, not an engineering one |
-| **Team members** | Not listed | Add real names/roles to this README before submission |
+| **Team members** | Team SW-73 (ByteForge) | Add individual member names/roles to this README before submission, if the format requires it |
 | **Site geometry** | `BOP-03`, Delhi coordinates, invented zones | Replace with your actual demo site in `config/sites/` |
 
-### Gate 8 — Things I could not visually verify
+### Gate 8 — Visual/UX verification · ✅ closed
 
-The dashboard **compiles, typechecks in strict mode, and builds** (763 KB bundle, fonts inlined for offline use), and its logic is unit-tested. But I have no browser here, so **nobody has looked at it.** Spacing, contrast at projector gamma, and whether the risk waterfall actually reads at a glance are unverified.
+The dashboard was actually opened and looked at — headless-Chrome screenshots of login, the live camera wall, the alert list, and the evidence verification panel were all captured and reviewed during this project's own live debugging. Two real bugs were found this way and are already fixed: a camera tile could show a green "live" dot over completely blank video (it now waits for the browser to confirm playable media before claiming live), and every failed login attempt was being reported as "session expired — sign in again" instead of "invalid username or password" (now only shown when a session actually existed before the call).
 
-- **Give me:** `make dash`, then a screenshot or a list of what looks wrong.
+### A third bug worth naming: evidence hashes were silently wrong
+
+Not a gate, but the most serious defect found in this project: `numpy.float64` values from the Kalman filter's tracking state were reaching the RFC 8785 evidence canonicaliser uncast. `numpy.float64` passes `isinstance(x, float)`, but in numpy ≥2.0 its `repr()` prints `np.float64(0.616)` instead of `0.616` — and the canonicaliser calls `repr()` internally. Every evidence hash computed from a track's box was silently wrong while the *stored* JSON (written by the numpy-agnostic standard encoder) looked completely normal. This reproduced on 100% of alerts and was only caught because the dashboard's own verification panel reported "TAMPERED" on a real, untampered alert. Fixed at the root cause (explicit `float()` casts in `track.py`) and with defense-in-depth in `evidence.py`'s canonicaliser, which now raises loudly — instead of hashing silently wrong — if a float subclass like this ever reaches it again.
 
 ### Gate 9 — Faces (§7.10) is not implemented · *blocks Phase 10*
 
