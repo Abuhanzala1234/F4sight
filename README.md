@@ -107,13 +107,15 @@ No 40-clip ground-truth set exists — that would need actual border-post footag
 
 Tested against a real, live camera: an Android phone running the IP Webcam app, pulled by MediaMTX exactly like any IP camera would be (`infra/mediamtx.yml`'s `phone-cam` path), with real detection, tracking, and alerts generated from it. One real operational finding from that run: orientation matters more than expected — sideways (portrait) video gave person-detection confidence ≈0.31, below the 0.40 production threshold and silently dropped; landscape gave ≈0.82. Worth remembering for any future live demo setup.
 
-### Gate 5 — A GPU · ❌ open, untested
+### Gate 5 — A GPU · ⚠️ half-closed — CUDA/TensorRT untestable here, CoreML tested and measured
 
-The `bop` profile targets an RTX 3060+ with TensorRT FP16. Every machine this has run on so far is CPU-only (Apple silicon, CoreML EP).
+The `bop` profile targets an RTX 3060+ with TensorRT FP16 — NVIDIA-only, no ARM/Apple Silicon build exists, so that half of this gate genuinely cannot be tested on this M1 no matter what. That part stays open.
 
-- **Give me:** access to a GPU box, or accept that the `bop` numbers stay theoretical.
-- **Fallback in place:** the `laptop` profile is the default and works on CPU; ONNX Runtime picks the best available provider automatically. (On this Mac, CoreML itself was intermittently flaky at inference time — worked around with a forced `CPUExecutionProvider` override, not root-caused.)
-- **Risk if skipped:** the 8–12 camera claim stays unverified. The 1–2 camera laptop claim is real and has been run live.
+What *can* run on this Mac's hardware acceleration — ONNX Runtime's CoreMLExecutionProvider, dispatching to the Apple Neural Engine — was actually tested: a real A/B benchmark against `yolo11n.onnx`, ~1,000 total inferences across two input sizes, full numbers in [`docs/BENCH.md`](docs/BENCH.md#gpu-testing-gate-5--apple-m1-what-was-actually-measured). Result: **CPU beat CoreML** on this model/hardware combination — CoreML only assigns 326 of 410 graph nodes to the Neural Engine, and the dispatch overhead outweighs the gain for a model this small. `config/profiles/laptop.yaml` now pins CPU ahead of CoreML as a result, which measurably closed a real deficit: the laptop profile's own detect stage went from 0.9× headroom against its configured 6 fps target (i.e. actually short of it) to 1.1×.
+
+- **Give me:** access to an NVIDIA GPU box to close the other half — the TensorRT/CUDA path itself.
+- **Fallback in place:** the `laptop` profile is the default, CPU-only, and now measurably meets its own throughput target on this hardware.
+- **Risk if skipped:** the 8–12 camera `bop` claim stays unverified. The 1–2 camera laptop claim is real, measured, and has been run live.
 
 ### Gate 6 — Hyperledger Fabric · ❌ open, untested
 
