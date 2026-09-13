@@ -1,0 +1,101 @@
+# DRISHTI-BOP infrastructure. Every image here is free and self-hosted.
+# `make up` starts this; `make demo` starts this plus the app processes.
+name: drishti
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16          # PostgreSQL 16 + pgvector, free
+    container_name: drishti-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-drishti}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-drishti_dev}
+      POSTGRES_DB: ${DB_NAME:-drishti}
+      # Evidence timestamps must be UTC everywhere. Non-negotiable (§6).
+      TZ: UTC
+      PGTZ: UTC
+    ports: ["${DB_PORT:-5432}:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-drishti} -d ${DB_NAME:-drishti}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z
+    # S3-compatible object store, free. Pulled from quay.io, pinned: Docker
+    # Hub's minio/minio:latest now requires a login even for anonymous pulls
+    # (an upstream distribution change, not a licence change - MinIO itself
+    # is still AGPL-3.0 and free). quay.io remains public.
+    container_name: drishti-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-drishti}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-drishti_dev_secret}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio-init:
+    # Creates the evidence buckets and locks them down. Runs once, then exits.
+    image: quay.io/minio/mc:RELEASE.2024-10-08T09-37-26Z
+    container_name: drishti-minio-init
+    depends_on:
+      minio: {condition: service_healthy}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-drishti} ${MINIO_SECRET_KEY:-drishti_dev_secret};
+      mc mb --ignore-existing local/drishti-evidence;
+      mc mb --ignore-existing local/drishti-clips;
+      mc mb --ignore-existing local/drishti-thumbs;
+      mc anonymous set none local/drishti-evidence;
+      mc anonymous set none local/drishti-clips;
+      echo 'buckets ready';
+      "
+    restart: "no"
+
+  redis:
+    image: redis:7.2-alpine                # Redis Streams for worker -> API fan-out
+    container_name: drishti-redis
+    command: redis-server --save 60 1 --appendonly no --maxmemory 512mb --maxmemory-policy noeviction
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mediamtx:
+    # RTSP proxy + recorder + HLS/WebRTC restream.
+    # This service is why the browser can play camera video at all (blocker #4),
+    # and why recording survives an analytics crash (P8).
+    image: bluenviron/mediamtx:1.9.3  # pinned: floating :latest tags are how this broke
+    container_name: drishti-mediamtx
+    environment:
+      MTX_PROTOCOLS: tcp
+    ports:
+      - "${RTSP_PORT:-8554}:8554"     # RTSP
+      - "${HLS_PORT:-8888}:8888"      # HLS  <- the dashboard reads this
+      - "${WEBRTC_PORT:-8889}:8889"   # WebRTC (low latency, optional)
+      - "9997:9997"                   # control API
+    volumes:
+      - ./infra/mediamtx.yml:/mediamtx.yml:ro
+      - ./infra/fixtures:/fixtures:ro
+      - ./recordings:/recordings
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:

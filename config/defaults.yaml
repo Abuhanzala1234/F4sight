@@ -1,0 +1,91 @@
+# DRISHTI-BOP defaults. Merge order (later wins):
+#   defaults -> profiles/<profile> -> sites/<site> -> env (DRISHTI__A__B) -> CLI
+# The SHA-256 of the MERGED document becomes config_version, recorded on every
+# alert, so any alert can be traced to the exact ruleset that produced it (§11).
+
+meta:
+  spec_version: "1.0.0"
+
+runtime:
+  profile: laptop
+  site: BOP-03
+  # Hard ceiling on worker threads; 0 = derive from cpu_count.
+  max_worker_threads: 0
+  # Refuse to start if the system clock is further off than this (§13).
+  max_clock_skew_s: 2.0
+  models_dir: models
+  verify_model_manifest: true
+  spool_dir: spool          # where alerts/evidence buffer when a sink is down
+
+logging:
+  level: INFO
+  format: console           # console | json
+  # Every caught exception logs with context. No silent failures (CLAUDE.md/Code).
+  include_traceback: true
+
+ingest:
+  analytics_fps: 6.0
+  read_timeout_s: 5.0             # no frame for this long => STALLED (blocker #2)
+  reconnect_backoff_s: [1, 2, 4, 8, 15, 30]
+  max_consecutive_failures: 0     # 0 = retry forever
+  transport: tcp                  # UDP loses frames silently
+  buffer_size: 1                  # newest frame only; a queue is latency we can't undo
+  watchdog_interval_s: 1.0
+  frame_queue_size: 4             # DROP-OLDEST (§7.14)
+
+pipeline:
+  detection_queue_size: 16        # BLOCKS when full - a wedge should be visible
+  clip_writer_threads: 2
+  stats_interval_s: 10
+
+evidence:
+  snapshot_format: jpg
+  snapshot_quality: 92
+  clip_pre_roll_s: 5.0
+  clip_post_roll_s: 5.0
+  clip_fps: 12
+  # P4: evidence is ORIGINAL frames. This flag exists only so that a violation
+  # is a visible config change and not an accident.
+  allow_enhanced_evidence: false
+
+sinks:
+  postgres: true
+  redis: true
+  minio: true
+  # Fail-soft: a sink raising never stops the pipeline (§7.13).
+  fail_soft: true
+  spool_on_failure: true
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins: ["http://localhost:5173"]
+  access_token_ttl_s: 3600
+  refresh_token_ttl_s: 604800
+  login_rate_limit_per_min: 5
+  presigned_url_ttl_s: 300
+
+retention:
+  events_days: 7
+  tracks_days: 7
+  recordings_hours: 168
+  alerts_days: 365
+  audit_days: 365
+
+enhance:
+  clahe_clip: 2.0
+  clahe_grid: 8
+  dehaze_omega: 0.85
+  dehaze_patch: 15
+  dehaze_t0: 0.1
+  # Transmission map is computed at 1/N scale and upsampled. At full resolution
+  # the dark-channel erode measured 88 ms on 1280x720, against an 8 ms hot-path
+  # budget (BUILD_SPEC §7.3). The field is smooth, so this costs nothing visible.
+  dehaze_downscale: 4
+  unsharp_amount: 0.4
+  # Bilateral, not non-local-means: NLM measured 296 ms at 480x480 against an
+  # 8 ms budget, on the profile that engages when the system is already
+  # struggling. Bilateral is 0.8 ms and preserves the edges a detector needs.
+  denoise_d: 5
+  denoise_sigma: 50.0
+  use_zerodce: false

@@ -1,0 +1,39 @@
+# Environmental & Video Quality Monitor (§7.2).
+# Blocker #5: WITHOUT HYSTERESIS a passing headlight flips the profile every
+# second. enter_samples/exit_samples are the fix and are not optional.
+evqm:
+  enabled: true
+  sample_every_n: 15          # frames between samples
+  downscale_width: 320        # EVQM must cost < 3 ms. It is not allowed to be interesting.
+
+  hysteresis:
+    enter_samples: 3          # consecutive votes to ENTER a profile
+    exit_samples: 5           # consecutive votes to LEAVE the current one
+                              # (entering is deliberately faster than leaving)
+
+  thresholds:
+    # brightness (0..1, mean V of HSV)
+    night_brightness_below: 0.18
+    lowlight_brightness_below: 0.35
+    # contrast (0..1, normalised std of luma)
+    degraded_contrast_below: 0.10
+    # blur (0..1, 1 = sharp; normalised variance of Laplacian)
+    degraded_blur_below: 0.12
+    # fog (0..1, dark channel prior; 1 = heavy haze)
+    fog_above: 0.55
+    # noise (0..1, high-frequency energy after median subtraction)
+    degraded_noise_above: 0.45
+
+  # Normalisation constants for the raw metrics. Tuned on the eval set; these
+  # are exactly the kind of number that must live in config, not in source.
+  normalisation:
+    laplacian_var_sharp: 500.0
+    noise_energy_max: 40.0
+    motion_pixel_delta: 25       # per-pixel abs diff counted as "changed"
+
+  # Camera tamper detection: a step change inconsistent with time of day (§7.7).
+  tamper:
+    enabled: true
+    brightness_step: 0.35        # sudden change over one sample interval
+    blur_step: 0.30
+    min_samples_before_arming: 20

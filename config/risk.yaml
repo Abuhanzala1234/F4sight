@@ -1,0 +1,43 @@
+# Additive risk model (§7.8). P2: the breakdown IS the explanation, so the
+# weights below must sum exactly to the score. If they don't, the explanation
+# is a lie and the invariant test fails.
+risk:
+  weights:
+    ZONE_INTRUSION: 40.0        # scaled by zone.severity_base / 3
+    TRIPWIRE_CROSS_IN: 45.0
+    TRIPWIRE_CROSS_OUT: 20.0
+    LOITER_BASE: 15.0
+    LOITER_PER_STEP: 5.0
+    LOITER_CAP: 30.0
+    NIGHT_MOVEMENT: 20.0
+    PERIMETER_APPROACH: 18.0
+    WATCHLIST_FACE: 35.0
+    WATCHLIST_PLATE: 30.0
+    CROWD_FORMING: 25.0
+    UNAUTHORISED_VEHICLE: 25.0
+    CAMERA_TAMPER: 30.0
+
+    # --- Negative contributions. These are how the system says "I saw
+    # --- something but conditions were poor", instead of crying wolf. P3.
+    LOW_CONFIDENCE: -10.0       # track max_conf below low_confidence_below
+    DEGRADED_INPUT: -8.0        # EVQM profile in degraded_profiles
+    SHORT_TRACK: -12.0          # track younger than short_track_frames
+    KNOWN_PATROL_WINDOW: -15.0  # scheduled friendly movement
+
+  modifiers:
+    low_confidence_below: 0.60
+    short_track_frames: 15
+    degraded_profiles: [degraded, fog]
+
+  # Severity bands (§7.8 rule 4). Colour is never the only carrier in the UI.
+  severity_bands:
+    info: 0
+    low: 20
+    medium: 40
+    high: 60
+    critical: 80
+
+  clamp: [0.0, 100.0]
+  # When clamping changes the score, a synthetic CLAMP signal is appended so
+  # that sum(breakdown) == score still holds afterwards.
+  emit_clamp_signal: true

@@ -1,0 +1,85 @@
+# MediaMTX — RTSP ingest, recording, and HLS restream.
+# P8: recording is configured HERE, in a process the analytics worker cannot crash.
+
+logLevel: info
+logDestinations: [stdout]
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+
+# --- RTSP (ingest from real cameras, and serve fixtures) ---
+rtsp: yes
+rtspAddress: :8554
+protocols: [tcp]              # UDP drops frames silently; we always use TCP (§7.1)
+
+# --- HLS (this is what the browser plays) ---
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsAllowOrigin: '*'          # dev only; tighten in the bop profile
+
+# --- WebRTC (sub-second live wall, optional) ---
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: '*'
+
+api: yes
+apiAddress: :9997
+
+# --- Recording defaults: continuous, segmented, 7-day retention (§6.3) ---
+record: yes
+recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+recordFormat: fmp4
+recordPartDuration: 1s
+recordSegmentDuration: 5m
+recordDeleteAfter: 168h      # 7 days
+
+paths:
+  # ---- Fixture streams: local MP4s replayed as RTSP, forever. Tests and the
+  # ---- demo run against these. Never against a live camera (CLAUDE.md/Testing).
+  fixture-intrusion:
+    runOnInit: >
+      ffmpeg -re -stream_loop -1 -i /fixtures/intrusion_day.mp4
+      -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
+      -f rtsp rtsp://localhost:8554/fixture-intrusion
+    runOnInitRestart: yes
+    record: no
+
+  fixture-night:
+    runOnInit: >
+      ffmpeg -re -stream_loop -1 -i /fixtures/night_movement.mp4
+      -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
+      -f rtsp rtsp://localhost:8554/fixture-night
+    runOnInitRestart: yes
+    record: no
+
+  fixture-vehicle:
+    runOnInit: >
+      ffmpeg -re -stream_loop -1 -i /fixtures/vehicle_gate.mp4
+      -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
+      -f rtsp rtsp://localhost:8554/fixture-vehicle
+    runOnInitRestart: yes
+    record: no
+
+  # ---- Real cameras: one entry per camera, source is the camera's own RTSP URL.
+  # ---- `make seed` writes matching rows into the camera table.
+  # bop03-cam01:
+  #   source: rtsp://user:pass@10.0.3.11:554/Streaming/Channels/101
+  #   sourceProtocol: tcp
+  #   sourceOnDemand: no          # keep recording even with no viewer (P8)
+
+  # Gate 4: a real, live camera. Android phone running IP Webcam, confirmed
+  # working (H.264, 1920x1080, 30fps) via ffprobe before this was added.
+  # MediaMTX PULLS from the phone's RTSP server; the phone is the source, not
+  # a fixture. Same rtsp/hls/record pipeline as any other camera from here.
+  phone-cam:
+    source: rtsp://192.168.1.12:8080/h264_ulaw.sdp
+    sourceProtocol: tcp
+    sourceOnDemand: no
+
+  all_others:
+    record: yes

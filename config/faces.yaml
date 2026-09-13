@@ -1,0 +1,25 @@
+# Face analytics (§7.10).
+#
+#   enabled: false
+#
+# is the answer to the privacy question, and it is a DEFAULT, not a suggestion
+# (P6). The module refuses to load weights while this is false. Turning it on
+# is an admin action that writes an audit_log row.
+faces:
+  enabled: false
+
+  detector_weights: models/face/scrfd_500m.onnx
+  embedder_weights: models/face/w600k_mbf.onnx
+  embedding_dim: 512
+
+  min_face_px: 40
+  detect_conf: 0.60
+  match_threshold: 0.55           # cosine similarity; deliberately strict
+  max_faces_per_frame: 10
+
+  # THE INVARIANT. Embeddings from tracks that matched nothing are held in
+  # memory only and destroyed in the tracker's close_expired() callback.
+  # There is no code path that persists an embedding except explicit,
+  # audited admin enrolment through the API.
+  retain_non_matching_embeddings: false
+  enrolment_requires_audit: true

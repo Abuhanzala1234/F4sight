@@ -1,0 +1,31 @@
+{
+  "_provenance": "Zone geometry derived from REAL tracked pedestrian trajectories (worker/src/drishti_worker/track.py ByteTracker output) on real MOT16 CCTV footage, not from visual estimation. See docs/EVAL.md methodology section for the exact derivation.",
+  "MOT-04": [
+    {
+      "id": "corridor-line", "name": "Storefront corridor tripwire", "kind": "tripwire",
+      "polygon": [[0.15625, 0.0], [0.15625, 1.0]], "direction": "both",
+      "classes": [], "severity_base": 3
+    }
+  ],
+  "MOT-04-QUIET": [
+    {
+      "id": "quiet-corner", "name": "Storefront awning (no tracked foot traffic)", "kind": "area",
+      "polygon": [[0.85, 0.0], [1.0, 0.0], [1.0, 0.15], [0.85, 0.15]],
+      "classes": [], "severity_base": 3
+    }
+  ],
+  "MOT-02": [
+    {
+      "id": "plaza-line", "name": "Venice plaza tripwire", "kind": "tripwire",
+      "polygon": [[0.9375, 0.0], [0.9375, 1.0]], "direction": "both",
+      "classes": [], "severity_base": 3
+    }
+  ],
+  "MOT-09": [
+    {
+      "id": "mall-line", "name": "Mall corridor tripwire", "kind": "tripwire",
+      "polygon": [[0.3125, 0.0], [0.3125, 1.0]], "direction": "both",
+      "classes": [], "severity_base": 3
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# `edge` — Jetson Orin Nano. [STRETCH] (BUILD_SPEC §5).
+runtime:
+  profile: edge
+ingest:
+  analytics_fps: 10.0
+detector:
+  backend: tensorrt
+  model: yolo11n
+  weights: models/detect/yolo11n_int8.trt
+  input_size: [512, 512]
+  batching: {max_batch: 4, max_wait_ms: 20}
+faces:
+  enabled: false

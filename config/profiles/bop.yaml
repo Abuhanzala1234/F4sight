@@ -1,0 +1,16 @@
+# `bop` — the realistic field deployment. One workstation, RTX 3060 or better.
+runtime:
+  profile: bop
+ingest:
+  analytics_fps: 12.0
+detector:
+  backend: tensorrt
+  model: yolo11s
+  weights: models/detect/yolo11s.trt
+  input_size: [640, 640]
+  fp16: true
+  batching: {max_batch: 8, max_wait_ms: 15}
+pipeline:
+  clip_writer_threads: 4
+api:
+  cors_origins: []          # dashboard is served by the API in production

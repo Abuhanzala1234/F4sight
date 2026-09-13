@@ -1,0 +1,163 @@
+@import '@fontsource/chakra-petch/400.css';
+@import '@fontsource/chakra-petch/600.css';
+@import '@fontsource/chakra-petch/700.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+@import '@fontsource/ibm-plex-sans/400.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts are bundled from npm, not fetched from a CDN. A BOP has no uplink and
+   P9 says offline is the normal case — a dashboard that loses its typography
+   when the link drops is a dashboard that looks broken exactly when it matters. */
+
+@layer base {
+  :root {
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-void text-text font-sans antialiased;
+    font-feature-settings: 'tnum' 1, 'cv05' 1;
+  }
+
+  /* Atmosphere: a faint scanline field plus film grain. Barely visible, but it
+     is the difference between "web page" and "instrument". */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    background-image: repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.014) 0px,
+      rgba(255, 255, 255, 0.014) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 101;
+    background-image: var(--grain);
+    opacity: 0.5;
+  }
+
+  ::selection {
+    @apply bg-signal/30 text-bright;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-void;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-rule2;
+    border: 2px solid #07080a;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-dim;
+  }
+
+  :focus-visible {
+    outline: 1px solid theme('colors.signal');
+    outline-offset: 1px;
+  }
+}
+
+@layer components {
+  /* Panel with HUD corner brackets. The brackets are the signature motif:
+     they read as targeting reticles / equipment bezels and cost nothing. */
+  .panel {
+    @apply relative border border-rule bg-panel;
+  }
+  .panel::before,
+  .panel::after {
+    content: '';
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border-color: theme('colors.rule2');
+    pointer-events: none;
+  }
+  .panel::before {
+    top: -1px;
+    left: -1px;
+    border-top: 2px solid;
+    border-left: 2px solid;
+  }
+  .panel::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom: 2px solid;
+    border-right: 2px solid;
+  }
+
+  .panel-hot::before,
+  .panel-hot::after {
+    border-color: theme('colors.signal');
+  }
+
+  .label {
+    @apply font-mono text-2xs uppercase tracking-[0.16em] text-dim;
+  }
+
+  .datum {
+    @apply font-mono text-sm text-bright tabular-nums;
+  }
+
+  .hairline {
+    @apply border-t border-rule;
+  }
+
+  .kbd {
+    @apply inline-flex h-[18px] min-w-[18px] items-center justify-center border border-rule2
+           bg-raised px-1 font-mono text-[10px] text-dim;
+  }
+
+  .btn {
+    @apply inline-flex items-center gap-2 border border-rule2 bg-raised px-3 py-1.5
+           font-mono text-xs uppercase tracking-[0.12em] text-text
+           transition-colors hover:border-signal hover:text-signal
+           disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-rule2
+           disabled:hover:text-text;
+  }
+
+  .btn-primary {
+    @apply border-signal/60 bg-signal/10 text-signal hover:bg-signal/20;
+  }
+
+  .input {
+    @apply w-full border border-rule bg-void px-2.5 py-1.5 font-mono text-sm text-bright
+           placeholder:text-dim/60 focus:border-signal focus:outline-none;
+  }
+
+  /* Diagonal hazard hatching — used on the "no automated response" notice and
+     on degraded states. */
+  .hazard {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 176, 32, 0.07) 0px,
+      rgba(255, 176, 32, 0.07) 6px,
+      transparent 6px,
+      transparent 12px
+    );
+  }
+}

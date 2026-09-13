@@ -1,0 +1,16 @@
+# `laptop` — the default. Evaluator's machine, CPU only, must work on macOS/arm64.
+# `make demo` uses this. If it does not run here, it does not run.
+runtime:
+  profile: laptop
+ingest:
+  analytics_fps: 6.0
+detector:
+  model: yolo11n
+  weights: models/detect/yolo11n.onnx
+  input_size: [480, 480]
+  fp16: false
+  batching: {max_batch: 2, max_wait_ms: 25}
+pipeline:
+  clip_writer_threads: 1
+evidence:
+  clip_fps: 8

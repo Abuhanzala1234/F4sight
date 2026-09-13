@@ -1,0 +1,55 @@
+# Object detection (§7.4). All weights are free; see docs/MODELS.md.
+detector:
+  backend: onnx              # onnx | tensorrt | mock
+  model: yolo11n             # yolo11n | yolo11s | rtdetr_r18  (rtdetr = Apache-2.0 path)
+  weights: models/detect/yolo11n.onnx
+  input_size: [640, 640]
+  # Blocker #3: cold start. Never skip this.
+  warmup_iterations: 10
+  warmup_required: true      # worker does not report ready until warmup finishes
+
+  # ONNX Runtime execution providers, tried in order. CoreML keeps the macOS
+  # laptop profile usable; CUDA/TensorRT take over on a real box.
+  providers: [TensorrtExecutionProvider, CUDAExecutionProvider,
+              CoreMLExecutionProvider, CPUExecutionProvider]
+  intra_op_threads: 0        # 0 = ORT decides
+  fp16: true                 # ignored on CPU
+
+  batching:
+    max_batch: 8
+    max_wait_ms: 15          # fire a partial batch rather than add latency
+
+  nms:
+    iou: 0.45
+    max_detections: 100
+    class_agnostic: true
+
+  # P3: err high. Different classes deserve different thresholds.
+  conf_thresholds:
+    person: 0.40
+    vehicle: 0.45
+    animal: 0.50
+    bag: 0.55
+    default: 0.50
+
+  # Minimum box size in pixels. Below this a "detection" is noise at range.
+  min_box_area_px: 200
+  min_box_height_px: 18
+
+  # COCO class id -> our taxonomy (§7.4). Anything unmapped is dropped before
+  # the tracker ever sees it.
+  class_map:
+    0:  {cls: person,  }
+    1:  {cls: vehicle, vehicle_type: bicycle}
+    2:  {cls: vehicle, vehicle_type: car}
+    3:  {cls: vehicle, vehicle_type: motorcycle}
+    5:  {cls: vehicle, vehicle_type: bus}
+    7:  {cls: vehicle, vehicle_type: truck}
+    15: {cls: animal,  animal_type: cat}
+    16: {cls: animal,  animal_type: dog}
+    17: {cls: animal,  animal_type: horse}
+    18: {cls: animal,  animal_type: sheep}
+    19: {cls: animal,  animal_type: cow}
+    24: {cls: bag,     bag_type: backpack}
+    26: {cls: bag,     bag_type: handbag}
+    28: {cls: bag,     bag_type: suitcase}

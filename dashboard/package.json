@@ -1,0 +1,37 @@
+{
+  "name": "drishti-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "DRISHTI-BOP command center — SIH 2026 PS 26187 Team SW-73",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource/chakra-petch": "^5.0.20",
+    "@fontsource/ibm-plex-mono": "^5.0.13",
+    "@fontsource/ibm-plex-sans": "^5.0.20",
+    "hls.js": "^1.5.13",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "jsdom": "^24.1.0",
+    "postcss": "^8.4.39",
+    "prettier": "^3.3.3",
+    "tailwindcss": "^3.4.6",
+    "typescript": "^5.5.4",
+    "vite": "^5.3.4",
+    "vitest": "^2.0.4"
+  }
+}

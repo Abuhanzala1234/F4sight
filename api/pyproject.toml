@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drishti-api"
+version = "1.0.0"
+description = "DRISHTI-BOP API — REST, WebSocket fan-out, evidence verification"
+requires-python = ">=3.11"
+license = {text = "AGPL-3.0-or-later"}
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "pgvector>=0.2.5",
+    "redis>=5.0",
+    "minio>=7.2",
+    "python-jose[cryptography]>=3.3",
+    "argon2-cffi>=23.1",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+    # The API reuses the worker's pure modules for verification: the JCS
+    # canonicaliser, the Merkle proof checker and the plate HMAC must be the
+    # SAME code that produced the hashes, not a reimplementation that could
+    # drift (BUILD_SPEC §7.11).
+    "drishti-worker",
+]
+
+[tool.uv.sources]
+drishti-worker = { path = "../worker", editable = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "aiosqlite>=0.20",
+    "ruff>=0.4",
+    "black>=24.3",
+    "mypy>=1.9",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RET", "ARG", "PTH", "RUF", "BLE"]
+
+[tool.ruff.lint.per-file-ignores]
+# B008: FastAPI's Depends()/Query() in defaults is the framework's own idiom,
+# not a mutable-default bug.
+#
+# ARG001: a `principal: RequireViewer` parameter looks unused to a linter, but
+# its PRESENCE is what runs the RBAC dependency. Deleting these "unused"
+# arguments would silently remove the authorisation check from the endpoint —
+# the failure would be invisible in review and catastrophic in deployment.
+# RBAC is enforced by a dependency, never in the router body (BUILD_SPEC §8).
+"src/drishti_api/routers/*.py" = ["B008", "BLE001", "ARG001"]
+"src/drishti_api/seed.py" = ["BLE001"]
+"src/drishti_api/migrations/*" = ["E402", "INP001"]
+# Tests put the src trees on sys.path before importing, which E402 flags.
+"tests/*" = ["E402", "ARG002"]

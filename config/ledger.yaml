@@ -1,0 +1,27 @@
+# Evidence anchoring (§7.12).
+# Blocker #6: Fabric is the highest-variance task in the project. The mock
+# backend is the DEFAULT so that Fabric can never block the critical path.
+ledger:
+  backend: mock                   # mock | fabric
+  anchor_interval_s: 30
+  max_batch_leaves: 512
+  retry_backoff_s: [5, 15, 60, 300]
+  retry_forever: true             # Invariant: unavailability never blocks alerting
+
+  mock:
+    path: ledger_data/mock_ledger.jsonl   # append-only, SHA-256 chained
+
+  fabric:
+    channel: drishti
+    chaincode: evidencecc
+    msp_id: Org1MSP
+    peer_endpoint: localhost:7051
+    gateway_timeout_s: 10
+    crypto_path: fabric/organizations/peerOrganizations/org1.example.com
+
+  merkle:
+    # Domain separation. Without it, second-preimage attacks on the tree are
+    # textbook (§7.12).
+    leaf_prefix: "00"
+    node_prefix: "01"
+    duplicate_last_on_odd: true

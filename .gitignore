@@ -1,0 +1,39 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# Models: free to download, too big to track. `make models` fetches them.
+models/
+!models/.gitkeep
+
+# Media
+recordings/
+infra/fixtures/*.mp4
+eval/clips/
+spool/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dashboard/dist/
+*.tsbuildinfo
+
+# Ledger (mock backend writes here)
+ledger_data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

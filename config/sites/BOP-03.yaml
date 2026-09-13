@@ -1,0 +1,21 @@
+# Site overrides for BOP-03. Site config can tighten rules but the privacy
+# invariants (faces off, plate HMAC) cannot be loosened here.
+site:
+  code: BOP-03
+  name: "Border Out Post 03 — Sector West"
+  timezone: Asia/Kolkata
+  lat: 28.6139
+  lon: 77.2090
+
+rules:
+  night_movement:
+    window: {from: "18:00", to: "06:30"}    # local sunset is earlier here
+  loiter:
+    seconds: 25                             # tighter than default for this post
+
+# Known friendly movement: the patrol crosses the eastern tripwire on the hour.
+# This produces the KNOWN_PATROL_WINDOW negative risk signal (§7.8) rather than
+# suppressing the alert outright - the operator still sees it, scored lower.
+patrol_windows:
+  - {days: [0,1,2,3,4,5,6], from: "22:00", to: "22:20", zones: ["east-tripwire"]}
+  - {days: [0,1,2,3,4,5,6], from: "02:00", to: "02:20", zones: ["east-tripwire"]}
