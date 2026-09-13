@@ -1,0 +1,15 @@
+# Root-level tool config for repo-wide invocations.
+#
+# `worker/pyproject.toml` and `api/pyproject.toml` already carry [tool.black]
+# with line-length=100, but Makefile's `lint`/`fmt` targets run
+# `black worker api scripts` from the repo root — three sibling directories,
+# so black's config discovery uses their common ancestor (this directory) and,
+# finding no pyproject.toml here, silently fell back to its own default of 88.
+# ruff does not have this problem: it discovers config per-file, walking up
+# from each file's own directory, so `ruff check worker api scripts` already
+# found the right config on its own. This file is what makes `black` do the
+# same from the root, so `make lint` and `make fmt` are deterministic
+# regardless of which directory they're invoked against.
+[tool.black]
+line-length = 100
+target-version = ["py311"]
