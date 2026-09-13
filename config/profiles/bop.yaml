@@ -6,10 +6,21 @@ ingest:
 detector:
   backend: tensorrt
   model: yolo11s
-  weights: models/detect/yolo11s.trt
+  # An ONNX graph, NOT a prebuilt .plan/.trt engine. ONNX Runtime's TensorRT
+  # execution provider builds the FP16 engine itself from this graph and caches
+  # it under detector.gpu.trt_engine_cache_dir — so `make models` stays the only
+  # provisioning step, and the engine is rebuilt automatically when the graph,
+  # the input shapes or the GPU change. ort.InferenceSession cannot load a
+  # serialised .trt engine, which is what this line used to point at.
+  weights: models/detect/yolo11s.onnx
   input_size: [640, 640]
   fp16: true
   batching: {max_batch: 8, max_wait_ms: 15}
+  gpu:
+    # The engine build is the whole cold-start story on this profile: minutes on
+    # the first run, sub-second on every run after it (blocker #3).
+    trt_engine_cache_dir: models/trt_cache
+    trt_workspace_mb: 2048
 pipeline:
   clip_writer_threads: 4
 api:

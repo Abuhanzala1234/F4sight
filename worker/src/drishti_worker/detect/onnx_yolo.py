@@ -21,11 +21,71 @@ from typing import Any
 import numpy as np
 
 from ..types import RawDetection
-from . import DetectorConfig
+from . import GPU_PROVIDERS, DetectorConfig, resolve_execution_providers
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["OnnxYoloDetector"]
+__all__ = ["OnnxYoloDetector", "preprocess_into"]
+
+#: Divide, do not multiply by a precomputed 1/255. The reciprocal is not
+#: representable in binary floating point, so scaling by it moves about half of
+#: all pixel values by one ULP away from what a plain division gives. The error
+#: is far below anything a detector could notice, but it would stop this rewrite
+#: from being verifiably identical to the implementation it replaced — and a
+#: hot-path rewrite that is only approximately equivalent is one nobody can
+#: check. The division is memory-bandwidth bound here anyway; it measured the
+#: same as the multiply.
+_SCALE = np.float32(255.0)
+
+
+def preprocess_into(image: np.ndarray, dst: np.ndarray) -> None:
+    """BGR uint8 HWC -> RGB float32 CHW, written into ``dst``. **hot path**
+
+    Module level rather than a method so the arithmetic can be tested against
+    the obvious reference implementation without a weights file or a GPU.
+
+    ``transpose(2, 0, 1)`` is a free view; ``[::-1]`` on the resulting channel
+    axis is the BGR->RGB swap, also free. ``copyto`` does the strided read and
+    the uint8->float32 cast in a single pass, then the scale happens in place.
+    No temporaries: see :meth:`OnnxYoloDetector._prepare_batch` for why that
+    matters here.
+    """
+    np.copyto(dst, image.transpose(2, 0, 1)[::-1], casting="unsafe")
+    dst /= _SCALE
+
+
+def _preload_gpu_libraries(ort: Any, cfg: DetectorConfig) -> None:
+    """Make the pip-installed CUDA/cuDNN libraries findable before ORT looks.
+
+    Worth the twelve lines, because the failure it prevents is deeply
+    unhelpful. The CUDA libraries ship as ``nvidia-*`` wheels that unpack to
+    ``site-packages/nvidia/**/bin``, which is not on the Windows DLL search
+    path. Without this call ORT cannot load ``onnxruntime_providers_cuda.dll``,
+    reports the *dependency* as missing (``cublasLt64_13.dll``), and quietly
+    runs on CPU — a working demo that is ten times slower than the box it is
+    running on, with no obvious cause. Observed on exactly this hardware.
+
+    ``preload_dlls`` arrived in onnxruntime 1.21 and is a no-op where the
+    libraries come from a system CUDA install instead. Failing to preload is
+    never fatal: the session creation below falls back to CPU and says so.
+    """
+    if not any(p in GPU_PROVIDERS for p in cfg.providers):
+        return
+    preload = getattr(ort, "preload_dlls", None)
+    if preload is None:
+        logger.debug(
+            "onnxruntime %s has no preload_dlls; relying on the system CUDA "
+            "libraries being on PATH",
+            getattr(ort, "__version__", "?"),
+        )
+        return
+    try:
+        preload()
+    except Exception:
+        logger.exception(
+            "onnxruntime.preload_dlls() failed; if the GPU provider does not "
+            "bind below, the CUDA/cuDNN libraries are not discoverable"
+        )
 
 
 class OnnxYoloDetector:
@@ -41,26 +101,49 @@ class OnnxYoloDetector:
 
         import onnxruntime as ort
 
+        _preload_gpu_libraries(ort, cfg)
+
         options = ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         if cfg.intra_op_threads > 0:
             options.intra_op_num_threads = cfg.intra_op_threads
 
-        available = set(ort.get_available_providers())
-        providers = [p for p in cfg.providers if p in available]
-        if not providers:
-            providers = ["CPUExecutionProvider"]
-            logger.warning(
-                "none of the configured execution providers %s are available; "
-                "falling back to CPU. Expect reduced throughput.",
-                list(cfg.providers),
+        providers = resolve_execution_providers(cfg, ort.get_available_providers())
+        if any(
+            (p[0] if isinstance(p, tuple) else p) == "TensorrtExecutionProvider"
+            for p in providers
+        ):
+            # ORT will not create the cache directory itself; a missing path
+            # silently disables caching and every start rebuilds the engine.
+            Path(cfg.trt_engine_cache_dir).mkdir(parents=True, exist_ok=True)
+
+        try:
+            self._session = ort.InferenceSession(
+                str(weights), options, providers=providers
+            )
+        except Exception:
+            # A GPU provider can be present in the build but unusable on the
+            # box — missing CUDA/cuDNN/TensorRT libraries, a driver too old, or
+            # another process holding the VRAM. P8 says never lose the pipeline
+            # to a broken accelerator: log loudly, then run on CPU.
+            logger.exception(
+                "could not create an inference session with providers %s; "
+                "retrying on CPU. Throughput will drop — check the CUDA/TensorRT "
+                "runtime libraries on this host.",
+                [p[0] if isinstance(p, tuple) else p for p in providers],
+            )
+            self._session = ort.InferenceSession(
+                str(weights), options, providers=["CPUExecutionProvider"]
             )
 
-        self._session = ort.InferenceSession(str(weights), options, providers=providers)
         self._input_name = self._session.get_inputs()[0].name
         self._providers = self._session.get_providers()
+        self._buffer: np.ndarray | None = None
         logger.info(
-            "onnx detector loaded weights=%s providers=%s", weights, self._providers
+            "onnx detector loaded weights=%s providers=%s fp16=%s",
+            weights,
+            self._providers,
+            cfg.fp16 if self.on_gpu else "n/a (cpu)",
         )
 
     @property
@@ -70,6 +153,20 @@ class OnnxYoloDetector:
     @property
     def backend(self) -> str:
         return f"onnx[{self._providers[0]}]" if self._providers else "onnx"
+
+    @property
+    def providers(self) -> list[str]:
+        """The providers ORT actually bound, in priority order.
+
+        Reported in health and in `make bench` output: "we asked for TensorRT"
+        and "TensorRT is running" are different claims, and only the second one
+        belongs in a benchmark table.
+        """
+        return list(self._providers)
+
+    @property
+    def on_gpu(self) -> bool:
+        return bool(self._providers) and self._providers[0] in GPU_PROVIDERS
 
     def warmup(self, n: int = 10) -> float:
         """Blocker #3. Run dummy inferences so the first real frame is not slow.
@@ -93,21 +190,52 @@ class OnnxYoloDetector:
     def infer(self, images: Sequence[Any]) -> list[list[RawDetection]]:
         if not images:
             return []
-        batch = np.stack([self._preprocess(img) for img in images])
+        batch = self._prepare_batch(images)
         outputs = self._session.run(None, {self._input_name: batch})[0]
         return [self._postprocess(outputs[i]) for i in range(len(images))]
 
     # -- internals ---------------------------------------------------------
 
-    def _preprocess(self, image: Any) -> np.ndarray:
-        """BGR uint8 HWC -> RGB float32 CHW, letterboxed.
+    def _prepare_batch(self, images: Sequence[Any]) -> np.ndarray:
+        """Fill a reused NCHW buffer with the batch. **hot path**
 
-        The caller has already resized to ``input_size`` and holds the matching
-        ``FrameTransform``; doing the resize twice would desynchronise the
-        transform from the pixels.
+        Measured on an RTX 3050 with yolo11n at 640x640: preprocessing cost
+        5.8 ms per frame against 5.4 ms of actual GPU inference — the data
+        preparation had become the more expensive half of "inference". Two
+        causes, both fixed here:
+
+        * **Temporaries.** ``image[:, :, ::-1].astype(float32) / 255`` walks a
+          4.9 MB array three times and allocates two full-size intermediates
+          per frame. Converting into a destination buffer walks it twice with
+          none.
+        * **Re-allocation.** ``np.stack`` allocated a fresh 39 MB array for
+          every batch of 8, at analytics frame rate, forever.
+
+        Safe to reuse the buffer because §3.2 gives the pipeline exactly one
+        shared inference thread; ORT has copied the data to the device by the
+        time ``run`` returns. If a second thread ever calls ``infer``
+        concurrently, this buffer needs a lock or a per-thread copy.
         """
-        rgb = image[:, :, ::-1].astype(np.float32) / 255.0
-        return np.ascontiguousarray(np.transpose(rgb, (2, 0, 1)))
+        count = len(images)
+        width, height = self.cfg.input_size
+        buffer = self._buffer
+        if buffer is None or buffer.shape[0] < count:
+            buffer = np.empty((count, 3, height, width), dtype=np.float32)
+            self._buffer = buffer
+
+        view = buffer[:count]  # contiguous: slicing only the leading axis
+        for i, image in enumerate(images):
+            preprocess_into(image, view[i])
+        return view
+
+    def _preprocess(self, image: Any) -> np.ndarray:
+        """Single-frame form of :meth:`_preprocess_into`, for callers outside
+        the batch path (benchmarks, tests). Allocates; the hot path does not.
+        """
+        width, height = self.cfg.input_size
+        out = np.empty((3, height, width), dtype=np.float32)
+        preprocess_into(image, out)
+        return out
 
     def _postprocess(self, output: np.ndarray) -> list[RawDetection]:
         # YOLO11/v8: (4+nc, N). RT-DETR: (N, 4+nc). Distinguish by which axis

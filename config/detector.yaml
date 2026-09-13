@@ -13,7 +13,24 @@ detector:
   providers: [TensorrtExecutionProvider, CUDAExecutionProvider,
               CoreMLExecutionProvider, CPUExecutionProvider]
   intra_op_threads: 0        # 0 = ORT decides
-  fp16: true                 # ignored on CPU
+  fp16: true                 # ignored on CPU; passed to TensorRT as trt_fp16_enable
+
+  # GPU tuning. Inert on CPU and CoreML, so these are safe to leave set.
+  gpu:
+    device_id: 0
+    gpu_mem_limit_mb: 0      # 0 = let the driver decide. Set it when the box
+                             # shares the GPU with anything else.
+    # HEURISTIC, not ORT's EXHAUSTIVE default: EXHAUSTIVE benchmarks every
+    # convolution algorithm at session init, which adds seconds to a cold start
+    # (blocker #3) to win a few percent in steady state.
+    cudnn_conv_algo_search: HEURISTIC
+    trt_workspace_mb: 1024
+    # THE reason a TensorRT restart is survivable. The first inference builds a
+    # kernel-tuned engine — tens of seconds to minutes. Cached, the next start
+    # deserialises it. Cache is keyed to the graph, the shapes and the device,
+    # so it rebuilds by itself when any of those change.
+    trt_engine_cache_dir: models/trt_cache
+    trt_timing_cache: true
 
   batching:
     max_batch: 8

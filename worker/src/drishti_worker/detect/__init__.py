@@ -26,7 +26,13 @@ from ..types import RawDetection
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Detector", "DetectorConfig", "MockDetector", "build_detector"]
+__all__ = [
+    "Detector",
+    "DetectorConfig",
+    "MockDetector",
+    "build_detector",
+    "resolve_execution_providers",
+]
 
 # Tried in order; the first available one wins. CoreML keeps the macOS laptop
 # profile usable, CUDA/TensorRT take over on a real box.
@@ -35,6 +41,12 @@ DEFAULT_PROVIDERS: tuple[str, ...] = (
     "CUDAExecutionProvider",
     "CoreMLExecutionProvider",
     "CPUExecutionProvider",
+)
+
+#: Providers for which ``fp16`` and the GPU tuning knobs mean anything. Setting
+#: them on CPU or CoreML is not an error, it is just noise in the session log.
+GPU_PROVIDERS: frozenset[str] = frozenset(
+    {"TensorrtExecutionProvider", "CUDAExecutionProvider"}
 )
 
 
@@ -64,6 +76,13 @@ class DetectorConfig:
     providers: tuple[str, ...] = DEFAULT_PROVIDERS
     intra_op_threads: int = 0
     fp16: bool = True
+    # GPU knobs (§5, `bop` profile). Inert on CPU and CoreML.
+    device_id: int = 0
+    gpu_mem_limit_mb: int = 0  # 0 = let the driver decide
+    cudnn_conv_algo_search: str = "HEURISTIC"
+    trt_workspace_mb: int = 1024
+    trt_engine_cache_dir: str = "models/trt_cache"
+    trt_timing_cache: bool = True
     max_batch: int = 8
     max_wait_ms: int = 15
     nms_iou: float = 0.45
@@ -81,6 +100,7 @@ class DetectorConfig:
         block = dict(cfg.get("detector", cfg))
         batching = dict(block.get("batching", {}))
         nms = dict(block.get("nms", {}))
+        gpu = dict(block.get("gpu", {}))
         size = list(block.get("input_size", (640, 640)))
         raw_map = dict(block.get("class_map", {}))
         return cls(
@@ -93,6 +113,16 @@ class DetectorConfig:
             providers=_as_provider_tuple(block.get("providers", DEFAULT_PROVIDERS)),
             intra_op_threads=int(block.get("intra_op_threads", 0)),
             fp16=bool(block.get("fp16", True)),
+            device_id=int(gpu.get("device_id", 0)),
+            gpu_mem_limit_mb=int(gpu.get("gpu_mem_limit_mb", 0)),
+            cudnn_conv_algo_search=str(
+                gpu.get("cudnn_conv_algo_search", "HEURISTIC")
+            ).upper(),
+            trt_workspace_mb=int(gpu.get("trt_workspace_mb", 1024)),
+            trt_engine_cache_dir=str(
+                gpu.get("trt_engine_cache_dir", "models/trt_cache")
+            ),
+            trt_timing_cache=bool(gpu.get("trt_timing_cache", True)),
             max_batch=int(batching.get("max_batch", 8)),
             max_wait_ms=int(batching.get("max_wait_ms", 15)),
             nms_iou=float(nms.get("iou", 0.45)),
@@ -108,6 +138,69 @@ class DetectorConfig:
         return float(
             self.conf_thresholds.get(cls, self.conf_thresholds.get("default", 0.50))
         )
+
+
+def resolve_execution_providers(
+    cfg: DetectorConfig, available: Sequence[str]
+) -> list[str | tuple[str, dict[str, Any]]]:
+    """Intersect the configured providers with what this ORT build offers, and
+    attach each one's options. Pure: no session, no GPU, no import of ORT.
+
+    Two things here are not cosmetic.
+
+    **fp16 was previously read from config and then thrown away.** ORT does not
+    infer precision from anywhere — an FP32 ONNX graph runs in FP32 on a GPU
+    unless the execution provider is told otherwise, so ``fp16: true`` in the
+    `bop` profile bought nothing until it was passed through as
+    ``trt_fp16_enable``.
+
+    **The TensorRT engine cache is what makes blocker #3 survivable.** TensorRT
+    builds a kernel-tuned engine for the exact graph, shapes and device on the
+    first inference, which takes tens of seconds to minutes — far past the ~2 s
+    the warmup budget assumes. Cached, the second start deserialises in
+    well under a second. Without the cache, every worker restart at a BOP pays
+    the full build, which is not a thing anyone will wait for at 3 a.m.
+
+    ``cudnn_conv_algo_search`` defaults to HEURISTIC rather than ORT's own
+    EXHAUSTIVE default for the same reason: EXHAUSTIVE benchmarks every
+    convolution algorithm at session init and adds seconds to startup for
+    single-digit-percent steady-state gain.
+    """
+    offered = set(available)
+    chosen = [p for p in cfg.providers if p in offered]
+    if not chosen:
+        logger.warning(
+            "none of the configured execution providers %s are available in this "
+            "onnxruntime build (%s); falling back to CPU. Expect reduced throughput.",
+            list(cfg.providers),
+            sorted(offered),
+        )
+        chosen = ["CPUExecutionProvider"]
+
+    resolved: list[str | tuple[str, dict[str, Any]]] = []
+    for name in chosen:
+        if name == "TensorrtExecutionProvider":
+            options: dict[str, Any] = {
+                "device_id": cfg.device_id,
+                "trt_fp16_enable": cfg.fp16,
+                "trt_max_workspace_size": cfg.trt_workspace_mb * 1024 * 1024,
+                "trt_engine_cache_enable": True,
+                "trt_engine_cache_path": cfg.trt_engine_cache_dir,
+                "trt_timing_cache_enable": cfg.trt_timing_cache,
+            }
+            resolved.append((name, options))
+        elif name == "CUDAExecutionProvider":
+            options = {
+                "device_id": cfg.device_id,
+                "cudnn_conv_algo_search": cfg.cudnn_conv_algo_search,
+                "do_copy_in_default_stream": True,
+            }
+            if cfg.gpu_mem_limit_mb > 0:
+                options["gpu_mem_limit"] = cfg.gpu_mem_limit_mb * 1024 * 1024
+            resolved.append((name, options))
+        else:
+            resolved.append(name)
+    return resolved
 
 
 @runtime_checkable

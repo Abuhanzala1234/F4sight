@@ -6,11 +6,26 @@ while the transform arithmetic and class mapping under test are the real code.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
-from drishti_worker.detect import Detector, DetectorConfig, MockDetector, build_detector
+from drishti_worker.detect import (
+    Detector,
+    DetectorConfig,
+    MockDetector,
+    build_detector,
+    resolve_execution_providers,
+)
+from drishti_worker.detect.onnx_yolo import preprocess_into
 from drishti_worker.pipeline import Pipeline
 from drishti_worker.types import FrameTransform, RawDetection
+
+CPU_ONLY = ["CPUExecutionProvider"]
+FULL_GPU_BOX = [
+    "TensorrtExecutionProvider",
+    "CUDAExecutionProvider",
+    "CPUExecutionProvider",
+]
 
 CLASS_MAP = {
     0: {"cls": "person"},
@@ -82,6 +97,173 @@ class TestConfig:
             }
         )
         assert cfg.threshold_for("person") < cfg.threshold_for("bag")
+
+
+class TestExecutionProviders:
+    """§5, the `bop` profile. We mock the GPU, never the logic: the provider
+    list and its options are pure config arithmetic and get tested as such.
+    """
+
+    def _options(self, resolved, name: str) -> dict:
+        for entry in resolved:
+            if isinstance(entry, tuple) and entry[0] == name:
+                return entry[1]
+        raise AssertionError(f"{name} not in {resolved}")
+
+    def test_configured_order_is_preserved(self):
+        cfg = DetectorConfig()
+        resolved = resolve_execution_providers(cfg, FULL_GPU_BOX)
+        names = [e[0] if isinstance(e, tuple) else e for e in resolved]
+        assert names[0] == "TensorrtExecutionProvider"
+        assert names[1] == "CUDAExecutionProvider"
+
+    def test_unavailable_providers_are_dropped_not_requested(self):
+        """Asking ORT for a provider this build lacks is an error, not a no-op."""
+        resolved = resolve_execution_providers(DetectorConfig(), CPU_ONLY)
+        assert resolved == ["CPUExecutionProvider"]
+
+    def test_no_overlap_falls_back_to_cpu(self):
+        cfg = DetectorConfig(providers=("CoreMLExecutionProvider",))
+        assert resolve_execution_providers(cfg, CPU_ONLY) == ["CPUExecutionProvider"]
+
+    def test_fp16_reaches_tensorrt(self):
+        """It used to be read from config and then silently discarded, which
+        meant the `bop` profile ran FP32 while claiming FP16."""
+        resolved = resolve_execution_providers(DetectorConfig(fp16=True), FULL_GPU_BOX)
+        assert self._options(resolved, "TensorrtExecutionProvider")["trt_fp16_enable"]
+
+    def test_fp16_off_is_propagated_too(self):
+        resolved = resolve_execution_providers(DetectorConfig(fp16=False), FULL_GPU_BOX)
+        opts = self._options(resolved, "TensorrtExecutionProvider")
+        assert opts["trt_fp16_enable"] is False
+
+    def test_engine_cache_is_always_enabled(self):
+        """Blocker #3: an uncached TensorRT engine build is minutes, every start."""
+        cfg = DetectorConfig(trt_engine_cache_dir="models/trt_cache")
+        opts = self._options(
+            resolve_execution_providers(cfg, FULL_GPU_BOX),
+            "TensorrtExecutionProvider",
+        )
+        assert opts["trt_engine_cache_enable"] is True
+        assert opts["trt_engine_cache_path"] == "models/trt_cache"
+
+    def test_workspace_is_converted_to_bytes(self):
+        cfg = DetectorConfig(trt_workspace_mb=2048)
+        opts = self._options(
+            resolve_execution_providers(cfg, FULL_GPU_BOX),
+            "TensorrtExecutionProvider",
+        )
+        assert opts["trt_max_workspace_size"] == 2048 * 1024 * 1024
+
+    def test_cuda_memory_limit_is_omitted_when_unset(self):
+        """0 must mean 'let the driver decide', not 'zero bytes of VRAM'."""
+        opts = self._options(
+            resolve_execution_providers(DetectorConfig(), FULL_GPU_BOX),
+            "CUDAExecutionProvider",
+        )
+        assert "gpu_mem_limit" not in opts
+
+    def test_cuda_memory_limit_is_converted_when_set(self):
+        cfg = DetectorConfig(gpu_mem_limit_mb=3072)
+        opts = self._options(
+            resolve_execution_providers(cfg, FULL_GPU_BOX), "CUDAExecutionProvider"
+        )
+        assert opts["gpu_mem_limit"] == 3072 * 1024 * 1024
+
+    def test_conv_algo_search_defaults_to_heuristic_for_cold_start(self):
+        opts = self._options(
+            resolve_execution_providers(DetectorConfig(), FULL_GPU_BOX),
+            "CUDAExecutionProvider",
+        )
+        assert opts["cudnn_conv_algo_search"] == "HEURISTIC"
+
+    def test_cpu_provider_carries_no_gpu_options(self):
+        resolved = resolve_execution_providers(DetectorConfig(), FULL_GPU_BOX)
+        assert "CPUExecutionProvider" in resolved  # a bare string, not a tuple
+
+    def test_gpu_block_is_read_from_config(self):
+        cfg = DetectorConfig.from_mapping(
+            {
+                "detector": {
+                    "fp16": True,
+                    "gpu": {
+                        "device_id": 1,
+                        "trt_workspace_mb": 512,
+                        "gpu_mem_limit_mb": 2048,
+                        "cudnn_conv_algo_search": "exhaustive",
+                        "trt_engine_cache_dir": "/tmp/engines",
+                    },
+                }
+            }
+        )
+        assert cfg.device_id == 1
+        assert cfg.trt_workspace_mb == 512
+        assert cfg.gpu_mem_limit_mb == 2048
+        assert cfg.cudnn_conv_algo_search == "EXHAUSTIVE"
+        assert cfg.trt_engine_cache_dir == "/tmp/engines"
+
+    def test_gpu_defaults_hold_when_the_block_is_absent(self):
+        cfg = DetectorConfig.from_mapping({"detector": {}})
+        assert cfg.device_id == 0
+        assert cfg.gpu_mem_limit_mb == 0
+        assert cfg.trt_engine_cache_dir == "models/trt_cache"
+
+
+class TestPreprocessing:
+    """The buffer-reuse rewrite is a hot-path optimisation (§7.4), so it is
+    pinned against the obvious implementation it replaced. A silent channel
+    swap here would mis-detect everything downstream while looking healthy.
+    """
+
+    def _reference(self, image):
+        """What the code did before the rewrite. Readable, allocation-heavy."""
+        rgb = image[:, :, ::-1].astype(np.float32) / 255.0
+        return np.ascontiguousarray(np.transpose(rgb, (2, 0, 1)))
+
+    def _image(self, h=32, w=48):
+        rng = np.random.default_rng(7)
+        return rng.integers(0, 256, (h, w, 3), dtype=np.uint8)
+
+    def test_matches_the_reference_implementation_exactly(self):
+        image = self._image()
+        out = np.empty((3, 32, 48), dtype=np.float32)
+        preprocess_into(image, out)
+        np.testing.assert_array_equal(out, self._reference(image))
+
+    def test_channel_order_is_bgr_to_rgb(self):
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+        image[:, :, 0] = 255  # blue in a BGR frame
+        out = np.empty((3, 4, 4), dtype=np.float32)
+        preprocess_into(image, out)
+        assert out[2].max() == 1.0  # ...must land in the RED plane of RGB
+        assert out[0].max() == 0.0
+
+    def test_output_is_normalised_to_unit_range(self):
+        out = np.empty((3, 32, 48), dtype=np.float32)
+        preprocess_into(self._image(), out)
+        assert out.min() >= 0.0 and out.max() <= 1.0
+
+    def test_endpoints_are_exact(self):
+        image = np.zeros((2, 2, 3), dtype=np.uint8)
+        image[0, 0, :] = 255
+        out = np.empty((3, 2, 2), dtype=np.float32)
+        preprocess_into(image, out)
+        assert out[0, 0, 0] == 1.0
+        assert out[0, 1, 1] == 0.0
+
+    def test_writes_into_a_non_contiguous_destination_slot(self):
+        """Every real call writes into one row of a reused NCHW batch buffer."""
+        buffer = np.empty((4, 3, 32, 48), dtype=np.float32)
+        image = self._image()
+        preprocess_into(image, buffer[2])
+        np.testing.assert_array_equal(buffer[2], self._reference(image))
+
+    def test_the_source_frame_is_not_mutated(self):
+        """P4: the original frame is evidence and is never touched."""
+        image = self._image()
+        before = image.copy()
+        preprocess_into(image, np.empty((3, 32, 48), dtype=np.float32))
+        np.testing.assert_array_equal(image, before)
 
 
 class TestFrameTransform:
