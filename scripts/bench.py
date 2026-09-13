@@ -89,6 +89,18 @@ def main() -> int:
         help="override the configured backend; 'mock' benchmarks everything "
         "except inference, which is useful before `make models` has run",
     )
+    parser.add_argument(
+        "--providers",
+        default=None,
+        help="comma-separated ONNX Runtime execution providers to force, tried "
+        "in this order (e.g. CUDAExecutionProvider,CPUExecutionProvider). "
+        "Overrides the profile's configured provider list -- this is how you "
+        "A/B a GPU against CPU on a given machine without editing config "
+        "files. load_config() is called with environ={} on purpose (bench "
+        "numbers must be a function of committed config, not whoever's shell "
+        "happened to have a stray DRISHTI__ variable set), so this flag is "
+        "the supported way to override providers for a one-off run.",
+    )
     args = parser.parse_args()
 
     try:
@@ -101,6 +113,9 @@ def main() -> int:
     detector_cfg = DetectorConfig.from_mapping(cfg.as_dict())
     if args.detector:
         detector_cfg = replace(detector_cfg, backend=args.detector)
+    if args.providers:
+        providers = tuple(p.strip() for p in args.providers.split(",") if p.strip())
+        detector_cfg = replace(detector_cfg, providers=providers)
     rng = np.random.default_rng(0)
     image = rng.integers(0, 255, (720, 1280, 3), dtype=np.uint8)
 
