@@ -89,54 +89,38 @@ It drives a synthetic intruder through the real pipeline — track, geometry, ru
 
 ## Hard gates
 
-**Everything below is something this repository cannot produce for itself.** Each one is a real external dependency — hardware, footage, credentials, or a decision. The system is built so that *none of them block the demo*: there is a working fallback for every single item. But the fallback is not the real thing, and here is exactly what the real thing needs.
+**Everything below is something this repository could not have produced for itself.** Each one is a real external dependency — hardware, footage, credentials, or a decision. The system is built so that *none of them block the demo*: there is a working fallback for every single item. Five of the eight have since been closed with a live, verified run; the rest are listed honestly below.
 
-### Gate 1 — Docker · *blocks `make up`, `make demo`*
+### Gate 1 — Docker · ✅ closed
 
-Not installed on the machine this was built on, so Postgres, MinIO, Redis and MediaMTX have never actually been started.
+Postgres, MinIO, Redis and MediaMTX have all been started and run together live. Two real upstream compatibility breaks were hit and fixed along the way: Docker Hub now requires a login even for anonymous `minio/minio` pulls (switched to the `quay.io/minio/*` mirrors, pinned), and MediaMTX renamed its `rtspTransports` config field to `protocols` between versions (found by extracting the shipped image's own default config). A third gap was closed after that: the MediaMTX image is a scratch-based static binary with no shell and no ffmpeg, so it could never actually run the fixture-camera `runOnInit` commands in `infra/mediamtx.yml` — the three seeded fixture cameras looked configured but never carried real video. Fixed with a dedicated `fixture-streamer` sidecar container (plain ffmpeg, looping the local MP4s in over RTSP/TCP); verified live via `ffprobe` against all three RTSP paths and a real `200` HLS manifest fetch.
 
-- **Give me:** Docker Desktop installed, or run `make up` yourself and paste the output.
-- **Fallback in place:** every DB-free path is tested (341 tests pass with no infrastructure), and the worker falls back to fixture cameras defined in config when the database is unreachable.
-- **Risk if skipped:** migrations, seed, the live wall and the anchor service have never run end to end. This is the **single highest-value gate** — everything else is downstream of it.
+### Gate 2 — Model weights · ✅ closed
 
-### Gate 2 — Model weights · *blocks real detection*
+`make models` ran for real: YOLO11n exported to ONNX and verified against real inference.
 
-`make models` needs network access to download YOLO11n (~10 MB) from GitHub, and `pip install ultralytics` (build-time only) to export it to ONNX.
+### Gate 3 — Real labelled footage · ✅ closed (small sample)
 
-- **Give me:** run `make models` on a connected machine, or confirm it is fine to `pip install ultralytics` here.
-- **Fallback in place:** `detector.backend: mock` produces scripted detections; every pipeline stage downstream is exercised and tested against it.
-- **Risk if skipped:** no real accuracy numbers, and `make bench` reports inference at 0 ms because it is benchmarking the mock.
+No 40-clip ground-truth set exists — that would need actual border-post footage this project never had access to. Instead, `eval/clips/` holds four real clips from **MOT16** (a public, directly-downloadable pedestrian-tracking benchmark), with ground-truth zones placed by tracing real tracked trajectories mathematically rather than eyeballing frames. Honest numbers — precision 0.222, recall 0.667, 0.00 false-alerts/idle-hour, per-clip breakdown, and explicit limitations — are in [`docs/EVAL.md`](docs/EVAL.md). This is a small-sample proof that the measurement pipeline itself is correct, not a claim of production accuracy.
 
-### Gate 3 — Real labelled footage · *blocks `make eval`*
+### Gate 4 — A real RTSP camera · ✅ closed
 
-The evaluation set (§15) needs ≥ 40 clips with ground truth: day, dusk, night, fog, rain-on-lens, crowd, vehicle, **empty scenes**, and two deliberate tamper clips.
+Tested against a real, live camera: an Android phone running the IP Webcam app, pulled by MediaMTX exactly like any IP camera would be (`infra/mediamtx.yml`'s `phone-cam` path), with real detection, tracking, and alerts generated from it. One real operational finding from that run: orientation matters more than expected — sideways (portrait) video gave person-detection confidence ≈0.31, below the 0.40 production threshold and silently dropped; landscape gave ≈0.82. Worth remembering for any future live demo setup.
 
-- **Give me:** clips in `eval/clips/` plus `eval/labels.jsonl`. Even 10 clips would let me report honest numbers. Border-adjacent CCTV, campus perimeter footage, or any fixed-camera outdoor video works.
-- **Fallback in place:** `make fixtures` synthesises three clips with OpenCV — enough to prove the pipeline, not enough to measure it.
-- **Risk if skipped:** **no defensible precision/recall figures.** The targets in §14 stay aspirations. A judge asking "how accurate is it?" gets an honest "we have not measured it on real footage", which is a weak answer.
+### Gate 5 — A GPU · ❌ open, untested
 
-### Gate 4 — A real RTSP camera · *blocks the P1 claim*
-
-The entire premise is "works with existing CCTV". That has only been tested against MediaMTX replaying MP4s.
-
-- **Give me:** one RTSP URL (any IP camera, even a phone running an RTSP server app), or confirmation you have tested against one.
-- **Fallback in place:** the watchdog and reconnect logic is unit-tested, and fixture streams exercise the same code path.
-- **Risk if skipped:** real cameras have quirks — H.264 baseline, B-frames, credentials in the URL, ONVIF discovery, 4CIF resolutions — that fixtures never reproduce.
-
-### Gate 5 — A GPU · *blocks the `bop` profile*
-
-The `bop` profile targets an RTX 3060+ with TensorRT FP16. This machine is CPU-only (Apple silicon, CoreML EP available).
+The `bop` profile targets an RTX 3060+ with TensorRT FP16. Every machine this has run on so far is CPU-only (Apple silicon, CoreML EP).
 
 - **Give me:** access to a GPU box, or accept that the `bop` numbers stay theoretical.
-- **Fallback in place:** the `laptop` profile is the default and works on CPU; ONNX Runtime picks the best available provider automatically.
-- **Risk if skipped:** the 8–12 camera claim in §5 is unverified. The 1–2 camera laptop claim is real.
+- **Fallback in place:** the `laptop` profile is the default and works on CPU; ONNX Runtime picks the best available provider automatically. (On this Mac, CoreML itself was intermittently flaky at inference time — worked around with a forced `CPUExecutionProvider` override, not root-caused.)
+- **Risk if skipped:** the 8–12 camera claim stays unverified. The 1–2 camera laptop claim is real and has been run live.
 
-### Gate 6 — Hyperledger Fabric · *blocks the real ledger backend*
+### Gate 6 — Hyperledger Fabric · ❌ open, untested
 
 `make fabric-up` needs Docker plus `fabric-samples` (~2 GB) and Go.
 
 - **Give me:** Docker + `./install-fabric.sh docker samples binary`, then `make fabric-up`.
-- **Fallback in place:** the mock ledger is a **real append-only hash-chained log** that detects tampering and names the broken entry. It exercises the identical code path; switching is one config line.
+- **Fallback in place:** the mock ledger is a **real append-only hash-chained log** that detects tampering and names the broken entry. It exercises the identical code path; switching is one config line. It has been run live and caught real corruption during this project's own debugging (see the evidence-hash bug below) — the tamper-evidence design did its job.
 - **Risk if skipped:** the word "blockchain" in the problem statement is answered by a chained JSONL file rather than Fabric. Defensible, but weaker in the room.
 
 ### Gate 7 — Decisions only you can make
@@ -145,14 +129,16 @@ The `bop` profile targets an RTX 3060+ with TensorRT FP16. This machine is CPU-o
 | --- | --- | --- |
 | **AGPL vs Apache** | YOLO11 (AGPL-3.0) | If the deploying org rejects AGPL, set `detector.backend: rtdetr` — Apache-2.0, ~2 points mAP lower, no other change |
 | **Face analytics** | Disabled | It is the answer to the privacy question. Turning it on is a policy decision, not an engineering one |
-| **Team members** | Not listed | Add real names/roles to this README before submission |
+| **Team members** | Team SW-73 (ByteForge) | Add individual member names/roles to this README before submission, if the format requires it |
 | **Site geometry** | `BOP-03`, Delhi coordinates, invented zones | Replace with your actual demo site in `config/sites/` |
 
-### Gate 8 — Things I could not visually verify
+### Gate 8 — Visual/UX verification · ✅ closed
 
-The dashboard **compiles, typechecks in strict mode, and builds** (763 KB bundle, fonts inlined for offline use), and its logic is unit-tested. But I have no browser here, so **nobody has looked at it.** Spacing, contrast at projector gamma, and whether the risk waterfall actually reads at a glance are unverified.
+The dashboard was actually opened and looked at — headless-Chrome screenshots of login, the live camera wall, the alert list, and the evidence verification panel were all captured and reviewed during this project's own live debugging. Two real bugs were found this way and are already fixed: a camera tile could show a green "live" dot over completely blank video (it now waits for the browser to confirm playable media before claiming live), and every failed login attempt was being reported as "session expired — sign in again" instead of "invalid username or password" (now only shown when a session actually existed before the call).
 
-- **Give me:** `make dash`, then a screenshot or a list of what looks wrong.
+### A third bug worth naming: evidence hashes were silently wrong
+
+Not a gate, but the most serious defect found in this project: `numpy.float64` values from the Kalman filter's tracking state were reaching the RFC 8785 evidence canonicaliser uncast. `numpy.float64` passes `isinstance(x, float)`, but in numpy ≥2.0 its `repr()` prints `np.float64(0.616)` instead of `0.616` — and the canonicaliser calls `repr()` internally. Every evidence hash computed from a track's box was silently wrong while the *stored* JSON (written by the numpy-agnostic standard encoder) looked completely normal. This reproduced on 100% of alerts and was only caught because the dashboard's own verification panel reported "TAMPERED" on a real, untampered alert. Fixed at the root cause (explicit `float()` casts in `track.py`) and with defense-in-depth in `evidence.py`'s canonicaliser, which now raises loudly — instead of hashing silently wrong — if a float subclass like this ever reaches it again.
 
 ---
 

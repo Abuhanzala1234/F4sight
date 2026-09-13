@@ -41,28 +41,20 @@ recordDeleteAfter: 168h      # 7 days
 paths:
   # ---- Fixture streams: local MP4s replayed as RTSP, forever. Tests and the
   # ---- demo run against these. Never against a live camera (CLAUDE.md/Testing).
+  #
+  # NOTE: this image is a scratch-based single static binary -- no shell, no
+  # ffmpeg -- so a `runOnInit: ffmpeg ...` here can never run (confirmed: `docker
+  # run --entrypoint sh ... ` fails with "sh: executable file not found"). These
+  # paths are just declared as ordinary publish targets; the actual ffmpeg
+  # process that feeds them lives in the separate `fixture-streamer` service in
+  # docker-compose.yml, which pushes into the paths below over the network.
   fixture-intrusion:
-    runOnInit: >
-      ffmpeg -re -stream_loop -1 -i /fixtures/intrusion_day.mp4
-      -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
-      -f rtsp rtsp://localhost:8554/fixture-intrusion
-    runOnInitRestart: yes
     record: no
 
   fixture-night:
-    runOnInit: >
-      ffmpeg -re -stream_loop -1 -i /fixtures/night_movement.mp4
-      -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
-      -f rtsp rtsp://localhost:8554/fixture-night
-    runOnInitRestart: yes
     record: no
 
   fixture-vehicle:
-    runOnInit: >
-      ffmpeg -re -stream_loop -1 -i /fixtures/vehicle_gate.mp4
-      -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
-      -f rtsp rtsp://localhost:8554/fixture-vehicle
-    runOnInitRestart: yes
     record: no
 
   # ---- Real cameras: one entry per camera, source is the camera's own RTSP URL.

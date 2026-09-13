@@ -44,8 +44,8 @@ env: .env  ## Generate .env with random secrets if absent
 
 # ---------------------------------------------------------------- infra
 .PHONY: up
-up: env  ## Start infra: postgres, minio, redis, mediamtx
-	$(COMPOSE) up -d postgres minio redis mediamtx minio-init
+up: env  ## Start infra: postgres, minio, redis, mediamtx, fixture streams
+	$(COMPOSE) up -d postgres minio redis mediamtx minio-init fixture-streamer
 	@echo "waiting for health…"
 	@$(COMPOSE) ps
 	@echo "✓ infra up  ·  minio console http://localhost:9001  ·  hls http://localhost:8888"

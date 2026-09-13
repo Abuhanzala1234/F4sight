@@ -92,8 +92,43 @@ services:
       - "9997:9997"                   # control API
     volumes:
       - ./infra/mediamtx.yml:/mediamtx.yml:ro
-      - ./infra/fixtures:/fixtures:ro
       - ./recordings:/recordings
+    restart: unless-stopped
+
+  fixture-streamer:
+    # mediamtx's own image is a static binary with no shell and no ffmpeg, so
+    # it cannot run the `runOnInit` publishers itself (see infra/mediamtx.yml).
+    # This sidecar does the one job of pushing the three local fixture MP4s
+    # into mediamtx over RTSP, on loop, forever -- same free/local-only
+    # constraint (CLAUDE.md), just moved into a container that actually has
+    # ffmpeg. jrottenberg/ffmpeg is a plain Ubuntu + ffmpeg build, no license
+    # cost.
+    image: jrottenberg/ffmpeg:6.1-ubuntu2204
+    container_name: drishti-fixture-streamer
+    depends_on:
+      - mediamtx
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        stream() {
+          while true; do
+            # -rtsp_transport tcp: mediamtx.yml pins `protocols: [tcp]` (UDP
+            # drops frames silently, CLAUDE.md/§7.1) -- without this flag
+            # ffmpeg's default UDP publish attempt is refused with
+            # "461 Unsupported Transport" and the loop just spins.
+            ffmpeg -nostdin -re -stream_loop -1 -i "/fixtures/$1.mp4" \
+              -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an \
+              -f rtsp -rtsp_transport tcp "rtsp://mediamtx:8554/fixture-$2" || true
+            sleep 2
+          done
+        }
+        stream intrusion_day intrusion &
+        stream night_movement night &
+        stream vehicle_gate vehicle &
+        wait
+    volumes:
+      - ./infra/fixtures:/fixtures:ro
     restart: unless-stopped
 
 volumes:
