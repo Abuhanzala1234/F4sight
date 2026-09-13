@@ -9,9 +9,10 @@ and where P4 is enforced in code: the snapshot written here is
 enhancement parameters ride along as metadata so the record is complete without
 being altered.
 
-Clip writing goes to a small executor. An alert must reach the operator's screen
-in under a second (§3.4); muxing five seconds of pre-roll takes longer than that
-and has no business on the critical path.
+Clips are pre-roll only, cut synchronously from ``FrameBuffer``. An alert must
+reach the operator's screen in under a second (§3.4), which rules out waiting
+for ``clip_post_roll_s`` of frames that have not happened yet — see the scope
+note on ``_write_clip`` for the reasoning and what a post-roll pass would need.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ import logging
 import uuid
 from collections import deque
 from collections.abc import Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -70,7 +70,6 @@ class AlertAssembler:
     clip_pre_roll_s: float = 5.0
     clip_post_roll_s: float = 5.0
     clip_fps: int = 8
-    clip_executor: ThreadPoolExecutor | None = None
 
     def build(
         self,
@@ -85,6 +84,7 @@ class AlertAssembler:
         enhancement_params: Mapping[str, Any],
         escalated: bool = False,
         suppressed_since_last: int = 0,
+        frame_buffer: FrameBuffer | None = None,
     ) -> AlertRecord:
         now = datetime.now(UTC)
         items: list[dict[str, Any]] = []
@@ -92,6 +92,10 @@ class AlertAssembler:
         snapshot = self._write_snapshot(alert_id, camera, frame, enhancement_params)
         if snapshot is not None:
             items.append(snapshot)
+
+        clip = self._write_clip(alert_id, camera, frame, frame_buffer, enhancement_params)
+        if clip is not None:
+            items.append(clip)
 
         primary = signals[0]
         doc = assemble(
@@ -205,9 +209,7 @@ class AlertAssembler:
                 [int(cv2.IMWRITE_JPEG_QUALITY), self.snapshot_quality],
             )
             if not ok:
-                logger.error(
-                    "camera=%s JPEG encode failed for alert=%s", camera.code, alert_id
-                )
+                logger.error("camera=%s JPEG encode failed for alert=%s", camera.code, alert_id)
                 return None
 
             key = (
@@ -229,6 +231,102 @@ class AlertAssembler:
         except Exception:
             logger.exception(
                 "camera=%s snapshot storage failed for alert=%s; "
+                "the alert will still fire without it",
+                camera.code,
+                alert_id,
+            )
+            return None
+
+    def _write_clip(
+        self,
+        alert_id: str,
+        camera: CameraRuntime,
+        frame: Frame,
+        frame_buffer: FrameBuffer | None,
+        enhancement_params: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        """Mux the buffered ORIGINAL frames around the alert into an MP4. P4.
+
+        **Scope decision, stated plainly rather than hidden in a corner case:**
+        this only covers *pre-roll* — the ``clip_pre_roll_s`` seconds already in
+        the buffer at the moment the alert fires. ``clip_post_roll_s`` is kept in
+        config for a deployment that adds an async second pass, but is not used
+        here. The reason is §3.4: post-roll frames have not happened yet when the
+        alert needs to reach the operator, and this assembler's contract is to
+        hash the document once, synchronously, at assembly time (§7.11) — hold
+        it open for five more seconds of video and either the alert is five
+        seconds late or the hash is computed before the clip exists. Pre-roll
+        alone still answers the operator's first question, "what led up to
+        this", which is most of what a clip is for.
+
+        Bounded and fast on purpose: the buffer already holds only the last
+        ``clip_pre_roll_s`` seconds, so this encodes at most a few dozen frames
+        — tens of milliseconds, not the "muxing five seconds takes longer than
+        the latency budget" case the module docstring warns about (that concern
+        applies to a full pre+post clip, which is exactly what this does not
+        attempt).
+        """
+        if self.minio is None or frame_buffer is None or self.clip_pre_roll_s <= 0:
+            return None
+        frames = frame_buffer.window(frame.ts_utc, self.clip_pre_roll_s, 0.0)
+        if len(frames) < 2:
+            return None  # a one-frame "clip" is a snapshot with extra steps
+
+        import tempfile
+        from pathlib import Path
+
+        try:
+            import cv2
+
+            height, width = frames[0].image.shape[:2]
+            fourcc = cv2.VideoWriter.fourcc(*"mp4v")
+            tmp_path = Path(tempfile.mktemp(suffix=".mp4"))
+            writer = cv2.VideoWriter(str(tmp_path), fourcc, self.clip_fps, (width, height))
+            try:
+                if not writer.isOpened():
+                    logger.error(
+                        "camera=%s could not open video writer for alert=%s",
+                        camera.code,
+                        alert_id,
+                    )
+                    return None
+                for buffered in frames:
+                    writer.write(buffered.image)
+            finally:
+                writer.release()
+
+            data = tmp_path.read_bytes()
+            tmp_path.unlink(missing_ok=True)
+            if not data:
+                logger.error(
+                    "camera=%s clip encode produced 0 bytes for alert=%s",
+                    camera.code,
+                    alert_id,
+                )
+                return None
+
+            key = (
+                f"{camera.site_code}/{camera.code}/"
+                f"{frame.ts_utc.strftime('%Y/%m/%d')}/{alert_id}-clip.mp4"
+            )
+            stored = self.minio.put("clip", key, data, "video/mp4")
+            return {
+                **stored,
+                "id": str(uuid.uuid4()),
+                "width": width,
+                "height": height,
+                "fps": self.clip_fps,
+                "frame_count": len(frames),
+                "window_start": frames[0].ts_utc.isoformat(),
+                "window_end": frames[-1].ts_utc.isoformat(),
+                # Always false: these are the same original frames the snapshot
+                # comes from, never the enhanced array the detector saw (P4).
+                "enhanced": False,
+                "enhancement_params": dict(enhancement_params),
+            }
+        except Exception:
+            logger.exception(
+                "camera=%s clip storage failed for alert=%s; "
                 "the alert will still fire without it",
                 camera.code,
                 alert_id,

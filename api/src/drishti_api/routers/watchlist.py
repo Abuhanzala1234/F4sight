@@ -82,9 +82,7 @@ async def add_vehicle(
 
     digest = plate_hmac(normalised, settings.plate_hmac_key.encode())
     existing = (
-        await db.execute(
-            select(WatchlistVehicle).where(WatchlistVehicle.plate_hmac == digest)
-        )
+        await db.execute(select(WatchlistVehicle).where(WatchlistVehicle.plate_hmac == digest))
     ).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(409, "this plate is already on the watchlist")
@@ -109,9 +107,7 @@ async def add_vehicle(
             detail={"plate_hmac": digest, "category": payload.category},
         )
     )
-    logger.info(
-        "watchlist vehicle added hmac=%s… by=%s", digest[:12], principal.user_id
-    )
+    logger.info("watchlist vehicle added hmac=%s… by=%s", digest[:12], principal.user_id)
     return entry
 
 
@@ -122,9 +118,7 @@ async def remove_vehicle(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     entry = (
-        await db.execute(
-            select(WatchlistVehicle).where(WatchlistVehicle.id == entry_id)
-        )
+        await db.execute(select(WatchlistVehicle).where(WatchlistVehicle.id == entry_id))
     ).scalar_one_or_none()
     if entry is None:
         raise HTTPException(404, "watchlist entry not found")
@@ -150,9 +144,7 @@ async def list_persons(
             "This is the default and it is deliberate (Principle P6). Enabling it "
             "is an explicit, audited configuration change.",
         )
-    rows = (
-        await db.execute(select(WatchlistPerson).where(WatchlistPerson.active))
-    ).scalars()
+    rows = (await db.execute(select(WatchlistPerson).where(WatchlistPerson.active))).scalars()
     return [
         {
             "id": p.id,

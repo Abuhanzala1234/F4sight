@@ -50,9 +50,7 @@ async def camera_stream(
     Never the RTSP URL: it carries camera credentials, and no browser can play
     it anyway (blocker #4). Video reaches the dashboard as MediaMTX → HLS.
     """
-    camera = (
-        await db.execute(select(Camera).where(Camera.id == camera_id))
-    ).scalar_one_or_none()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalar_one_or_none()
     if camera is None:
         raise HTTPException(404, f"camera {camera_id} not found")
 
@@ -71,9 +69,7 @@ async def list_zones(
     principal: RequireViewer,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[Zone]:
-    return list(
-        (await db.execute(select(Zone).where(Zone.camera_id == camera_id))).scalars()
-    )
+    return list((await db.execute(select(Zone).where(Zone.camera_id == camera_id))).scalars())
 
 
 @router.post("/cameras/{camera_id}/zones", response_model=ZoneOut, status_code=201)
@@ -85,9 +81,7 @@ async def create_zone(
 ) -> Zone:
     """Zones are admin-only: a zone is a policy decision about what counts as
     an intrusion, and it changes what the system alerts on."""
-    camera = (
-        await db.execute(select(Camera).where(Camera.id == camera_id))
-    ).scalar_one_or_none()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalar_one_or_none()
     if camera is None:
         raise HTTPException(404, f"camera {camera_id} not found")
 
@@ -132,9 +126,7 @@ async def update_zone(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Zone:
     zone = (
-        await db.execute(
-            select(Zone).where(Zone.id == zone_id, Zone.camera_id == camera_id)
-        )
+        await db.execute(select(Zone).where(Zone.id == zone_id, Zone.camera_id == camera_id))
     ).scalar_one_or_none()
     if zone is None:
         raise HTTPException(404, f"zone {zone_id} not found on camera {camera_id}")
@@ -167,9 +159,7 @@ async def delete_zone(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     zone = (
-        await db.execute(
-            select(Zone).where(Zone.id == zone_id, Zone.camera_id == camera_id)
-        )
+        await db.execute(select(Zone).where(Zone.id == zone_id, Zone.camera_id == camera_id))
     ).scalar_one_or_none()
     if zone is None:
         raise HTTPException(404, f"zone {zone_id} not found")

@@ -55,9 +55,7 @@ class TestZoneRules:
         assert any(s.code == "ZONE_INTRUSION" for s in first[inside.track_id])
 
         second = engine.evaluate([inside], camera, [area_zone], T0, "day")
-        assert not any(
-            s.code == "ZONE_INTRUSION" for s in second.get(inside.track_id, [])
-        )
+        assert not any(s.code == "ZONE_INTRUSION" for s in second.get(inside.track_id, []))
 
     def test_outside_the_zone_is_silent(self, camera, area_zone):
         engine = RuleEngine(RULES, RISK)
@@ -69,18 +67,13 @@ class TestZoneRules:
         flapping tree and the public road."""
         engine = RuleEngine(RULES, RISK)
         on_the_road = make_track(box=(280.0, 600.0, 320.0, 700.0))
-        assert (
-            engine.evaluate([on_the_road], camera, [area_zone, mask_zone], T0, "day")
-            == {}
-        )
+        assert engine.evaluate([on_the_road], camera, [area_zone, mask_zone], T0, "day") == {}
 
     def test_class_filter(self, camera, area_zone):
         engine = RuleEngine(RULES, RISK)
         vehicle = make_track(cls="vehicle", box=(280.0, 300.0, 320.0, 400.0))
         signals = engine.evaluate([vehicle], camera, [area_zone], T0, "day")
-        assert not any(
-            s.code == "ZONE_INTRUSION" for s in signals.get(vehicle.track_id, [])
-        )
+        assert not any(s.code == "ZONE_INTRUSION" for s in signals.get(vehicle.track_id, []))
 
     def test_severity_base_scales_the_weight(self, camera):
         engine = RuleEngine(RULES, RISK)
@@ -117,9 +110,7 @@ class TestTripwire:
             box=(581.0, 200.0, 621.0, 400.0), history=((599.0, 400.0), (601.0, 400.0))
         )
         signals = engine.evaluate([jitter], camera, [tripwire_zone], T0, "day")
-        assert not any(
-            s.code == "TRIPWIRE_CROSS" for s in signals.get(jitter.track_id, [])
-        )
+        assert not any(s.code == "TRIPWIRE_CROSS" for s in signals.get(jitter.track_id, []))
 
 
 class TestNightMovement:
@@ -159,9 +150,7 @@ class TestNightMovement:
             T0,
             "day",
         )
-        assert "NIGHT_MOVEMENT" not in {
-            s.code for s in next(iter(in_daylight.values()))
-        }
+        assert "NIGHT_MOVEMENT" not in {s.code for s in next(iter(in_daylight.values()))}
 
 
 class TestSchedules:
@@ -396,19 +385,13 @@ class TestDebouncer:
 
     def test_cameras_are_independent(self):
         d = Debouncer(DebounceConfig(max_alerts_per_camera_per_min=1))
-        a = d.submit(
-            camera_id="C1", track_id=1, zone_id="z", rule_code="R", now=T0, alert_id="a"
-        )
-        b = d.submit(
-            camera_id="C2", track_id=1, zone_id="z", rule_code="R", now=T0, alert_id="b"
-        )
+        a = d.submit(camera_id="C1", track_id=1, zone_id="z", rule_code="R", now=T0, alert_id="a")
+        b = d.submit(camera_id="C2", track_id=1, zone_id="z", rule_code="R", now=T0, alert_id="b")
         assert a.decision is Decision.EMIT and b.decision is Decision.EMIT
 
     def test_close_track_clears_state(self):
         d = Debouncer()
-        d.submit(
-            camera_id="C1", track_id=1, zone_id="z", rule_code="R", now=T0, alert_id="a"
-        )
+        d.submit(camera_id="C1", track_id=1, zone_id="z", rule_code="R", now=T0, alert_id="a")
         d.close_track("C1", 1)
         again = d.submit(
             camera_id="C1",
@@ -422,9 +405,7 @@ class TestDebouncer:
 
 
 def test_rule_config_from_mapping():
-    cfg = RuleConfig.from_mapping(
-        {"rules": {"gating": {"min_hits": 7}, "loiter": {"seconds": 12}}}
-    )
+    cfg = RuleConfig.from_mapping({"rules": {"gating": {"min_hits": 7}, "loiter": {"seconds": 12}}})
     assert cfg.min_hits == 7
     assert cfg.loiter_seconds == 12
     assert cfg.min_track_age_frames == 8

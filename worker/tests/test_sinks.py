@@ -87,9 +87,7 @@ class TestFanout:
             def name(self):
                 return "postgres"
 
-        fan = FanoutSink(
-            sinks=[Durable(), ExplodingSink("redis")], spool=SpoolSink(tmp_path)
-        )
+        fan = FanoutSink(sinks=[Durable(), ExplodingSink("redis")], spool=SpoolSink(tmp_path))
         fan.emit(record())
         assert list(tmp_path.glob("alerts-*.jsonl")) == []
 

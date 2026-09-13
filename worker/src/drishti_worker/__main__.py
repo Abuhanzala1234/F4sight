@@ -67,9 +67,7 @@ def check_clock(max_skew_s: float) -> None:
         logger.info("clock check passed (skew %.2fs)", skew)
     except (OSError, TimeoutError, struct.error):
         # P9: offline is the normal case at a BOP. No uplink is not a failure.
-        logger.warning(
-            "NTP unreachable; skipping the clock check (offline operation assumed)"
-        )
+        logger.warning("NTP unreachable; skipping the clock check (offline operation assumed)")
 
 
 def verify_models(cfg: AppConfig) -> None:
@@ -148,10 +146,7 @@ def load_cameras(cfg: AppConfig) -> list[tuple[CameraRuntime, str, list[ZoneRunt
                     (r[0],),
                 ).fetchall()
                 zones = [_zone(z, camera.width, camera.height) for z in zone_rows]
-                source = (
-                    r[8]
-                    or f"rtsp://{os.getenv('MEDIAMTX_HOST','localhost')}:8554/{r[9]}"
-                )
+                source = r[8] or f"rtsp://{os.getenv('MEDIAMTX_HOST','localhost')}:8554/{r[9]}"
                 out.append((camera, source, zones))
 
             if out:
@@ -270,9 +265,7 @@ def build_sinks(cfg: AppConfig) -> tuple[FanoutSink, MinioSink | None]:
         else None
     )
     return (
-        FanoutSink(
-            sinks=sinks, spool=spool, fail_soft=cfg.get("sinks.fail_soft", True)
-        ),
+        FanoutSink(sinks=sinks, spool=spool, fail_soft=cfg.get("sinks.fail_soft", True)),
         minio,
     )
 
@@ -284,9 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default="config")
     parser.add_argument("--profile", default=None, help="laptop | bop | edge")
     parser.add_argument("--site", default=None, help="site code, e.g. BOP-03")
-    parser.add_argument(
-        "--source", default=None, help="override: one RTSP URL or MP4 path"
-    )
+    parser.add_argument("--source", default=None, help="override: one RTSP URL or MP4 path")
     parser.add_argument("--log-level", default=None)
     args = parser.parse_args(argv)
 
@@ -349,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
                 debounce_cfg=DebounceConfig.from_mapping(cfg.as_dict()),
                 frame_queue=pipeline.frame_queue,
                 on_alert=on_alert,
+                clip_pre_roll_s=float(cfg.get("evidence.clip_pre_roll_s", 5.0)),
             )
         )
 

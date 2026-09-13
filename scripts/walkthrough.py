@@ -79,9 +79,7 @@ for i in range(40):
     x = 420.0 + i * 10  # crosses the wire at x=600 around frame 18
     conf = 0.22 if 12 <= i <= 15 else 0.91  # occlusion behind a fence post
     ts = T0 + timedelta(seconds=i / 6.0)
-    tracks = tracker.update(
-        [Detection("person", conf, (x - 20, 220, x + 20, 430), 0)], ts
-    )
+    tracks = tracker.update([Detection("person", conf, (x - 20, 220, x + 20, 430), 0)], ts)
     if not tracks:
         continue
     signals = engine.evaluate(tracks, camera, [wire], ts, profile="night")
@@ -124,13 +122,9 @@ risk = score(
 )
 for s in risk.breakdown:
     colour = GREEN if s.weight >= 0 else RED
-    print(
-        f"   {s.code:<22} {colour}{s.weight:+7.2f}{RESET}   {DIM}{list(s.detail)[:3]}{RESET}"
-    )
+    print(f"   {s.code:<22} {colour}{s.weight:+7.2f}{RESET}   {DIM}{list(s.detail)[:3]}{RESET}")
 print(f"   {'':<22} {BOLD}{'─' * 7}{RESET}")
-print(
-    f"   {'SCORE':<22} {BOLD}{risk.score:7.2f}{RESET}   severity={BOLD}{risk.severity}{RESET}"
-)
+print(f"   {'SCORE':<22} {BOLD}{risk.score:7.2f}{RESET}   severity={BOLD}{risk.severity}{RESET}")
 print(
     f"   contributions sum to score: {GREEN if risk.sums_correctly() else RED}{risk.sums_correctly()}{RESET}"
 )
@@ -181,9 +175,7 @@ doc = assemble(
     created_at=fired_ts.isoformat(),
 )
 digest = evidence_hash(doc)
-canon = canonicalise(
-    {k: v for k, v in doc.items() if k not in ("evidence_hash", "ledger")}
-)
+canon = canonicalise({k: v for k, v in doc.items() if k not in ("evidence_hash", "ledger")})
 print(f"   canonical bytes         : {len(canon)}")
 print(f"   evidence_hash           : {digest}")
 print(
@@ -194,20 +186,14 @@ print(
 head(5, "Merkle batch + ledger anchor (the blockchain story)")
 import hashlib
 
-batch = [digest] + [
-    hashlib.sha256(f"other-alert-{i}".encode()).hexdigest() for i in range(11)
-]
+batch = [digest] + [hashlib.sha256(f"other-alert-{i}".encode()).hexdigest() for i in range(11)]
 tree = build_tree(batch)
 path = proof(tree, 0)
 ledger = MockLedger(Path(tempfile.mkdtemp()) / "ledger.jsonl")
-receipt = ledger.anchor(
-    tree.root, {"leaf_count": tree.leaf_count, "site_code": "BOP-03"}
-)
+receipt = ledger.anchor(tree.root, {"leaf_count": tree.leaf_count, "site_code": "BOP-03"})
 print(f"   leaves in batch         : {tree.leaf_count}")
 print(f"   merkle root             : {tree.root}")
-print(
-    f"   proof length            : {len(path)} siblings  {DIM}(log2 of the batch){RESET}"
-)
+print(f"   proof length            : {len(path)} siblings  {DIM}(log2 of the batch){RESET}")
 print(f"   ledger tx               : {receipt.tx_id}  backend={receipt.backend}")
 
 # ---------------------------------------------------------------- 6

@@ -157,9 +157,7 @@ class _BaseReader:
                     self.camera_id,
                     timeout_s,
                 )
-        self._set_state(
-            StreamState.FAILED if self._state != StreamState.LIVE else self._state
-        )
+        self._set_state(StreamState.FAILED if self._state != StreamState.LIVE else self._state)
 
     def _set_state(self, state: StreamState, error: str | None = None) -> None:
         if state == self._state and error is None:
@@ -300,9 +298,7 @@ class RtspReader(_BaseReader):
 
             if not ok or image is None:
                 self.stats.last_error = "read() returned no frame"
-                logger.warning(
-                    "camera=%s read() returned no frame; reconnecting", self.camera_id
-                )
+                logger.warning("camera=%s read() returned no frame; reconnecting", self.camera_id)
                 return
 
             self.stats.frames_read += 1
@@ -331,9 +327,7 @@ class RtspReader(_BaseReader):
             capture.set(cv2.CAP_PROP_BUFFERSIZE, self.cfg.buffer_size)
         except Exception as exc:
             self.stats.last_error = str(exc)
-            logger.exception(
-                "camera=%s failed to construct VideoCapture", self.camera_id
-            )
+            logger.exception("camera=%s failed to construct VideoCapture", self.camera_id)
             return False
 
         if not capture.isOpened():
@@ -357,9 +351,7 @@ class RtspReader(_BaseReader):
                 try:
                     self._capture.release()
                 except Exception:
-                    logger.exception(
-                        "camera=%s error releasing capture", self.camera_id
-                    )
+                    logger.exception("camera=%s error releasing capture", self.camera_id)
                 self._capture = None
 
     def _backoff(self, attempt: int) -> None:
@@ -423,9 +415,7 @@ class FileReader(_BaseReader):
         loop: bool = True,
         realtime: bool = True,
     ) -> None:
-        super().__init__(
-            camera_id, cfg or IngestConfig(), on_frame or (lambda _f: None), on_state
-        )
+        super().__init__(camera_id, cfg or IngestConfig(), on_frame or (lambda _f: None), on_state)
         self.path = path
         self.loop = loop
         self.realtime = realtime
@@ -438,9 +428,7 @@ class FileReader(_BaseReader):
             if not capture.isOpened():
                 self.stats.last_error = f"cannot open {self.path}"
                 self._set_state(StreamState.FAILED, self.stats.last_error)
-                logger.error(
-                    "camera=%s cannot open fixture %s", self.camera_id, self.path
-                )
+                logger.error("camera=%s cannot open fixture %s", self.camera_id, self.path)
                 return
 
             self._set_state(StreamState.LIVE)

@@ -70,9 +70,7 @@ def create_token(
 
 def decode_token(token: str, settings: Settings) -> dict[str, Any]:
     try:
-        return jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
-        )
+        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -134,9 +132,7 @@ class Principal:
 
 async def current_principal(
     request: Request,
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(_bearer)
-    ] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
     settings: Annotated[Settings, Depends(get_settings)] = None,  # type: ignore[assignment]
 ) -> Principal:
     if credentials is None:

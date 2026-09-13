@@ -156,9 +156,7 @@ class ProfileHysteresis:
     def submit(self, vote: Profile) -> Profile:
         """Feed one vote; return the (possibly unchanged) active profile."""
         if vote not in ALL_PROFILES:
-            raise ValueError(
-                f"unknown profile vote {vote!r}; expected one of {ALL_PROFILES}"
-            )
+            raise ValueError(f"unknown profile vote {vote!r}; expected one of {ALL_PROFILES}")
 
         if vote == self.current:
             # The incumbent was reaffirmed; both streaks reset.
@@ -177,10 +175,7 @@ class ProfileHysteresis:
         # BOTH conditions must hold: the challenger has earned its place AND the
         # incumbent has lost enough ground. Requiring only the first would let a
         # three-frame headlight sweep win.
-        if (
-            self._enter_streak >= self.enter_samples
-            and self._exit_streak >= self.exit_samples
-        ):
+        if self._enter_streak >= self.enter_samples and self._exit_streak >= self.exit_samples:
             self.current = vote
             self.changes += 1
             self._candidate = None
@@ -312,14 +307,10 @@ class EVQM:
         self._tamper_flag = False
         if not self.cfg.tamper_enabled:
             return
-        if (
-            self._sample_count < self.cfg.tamper_min_samples
-            or self._prev_metrics is None
-        ):
+        if self._sample_count < self.cfg.tamper_min_samples or self._prev_metrics is None:
             return
         d_bright = abs(metrics.brightness - self._prev_metrics.brightness)
         d_blur = abs(metrics.blur - self._prev_metrics.blur)
         self._tamper_flag = (
-            d_bright > self.cfg.tamper_brightness_step
-            or d_blur > self.cfg.tamper_blur_step
+            d_bright > self.cfg.tamper_brightness_step or d_blur > self.cfg.tamper_blur_step
         )

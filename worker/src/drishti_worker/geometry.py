@@ -153,9 +153,7 @@ def segments_intersect(p1: Point, p2: Point, q1: Point, q2: Point) -> bool:
     return bool(o4 == 0 and _on_segment(p2, q1, q2))
 
 
-def crossing_direction(
-    prev: Point, cur: Point, wire: tuple[Point, Point]
-) -> str | None:
+def crossing_direction(prev: Point, cur: Point, wire: tuple[Point, Point]) -> str | None:
     """Which way a track crossed a tripwire.
 
     Returns ``'in'``, ``'out'``, or ``None`` if the movement did not cross.
@@ -294,9 +292,7 @@ def point_to_segment_distance(pt: Point, a: Point, b: Point) -> float:
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def iou(
-    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
-) -> float:
+def iou(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
     """Intersection over union of two xyxy boxes. 0.0 when either is degenerate."""
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b

@@ -53,9 +53,7 @@ def _hash_leaf(leaf_hex: str) -> str:
     except ValueError as exc:
         raise ValueError(f"leaf is not hex: {leaf_hex!r}") from exc
     if len(raw) != 32:
-        raise ValueError(
-            f"leaf must be a 32-byte SHA-256 hex digest, got {len(raw)} bytes"
-        )
+        raise ValueError(f"leaf must be a 32-byte SHA-256 hex digest, got {len(raw)} bytes")
     return hashlib.sha256(LEAF_PREFIX + raw).hexdigest()
 
 
@@ -155,11 +153,7 @@ def verify_proof(leaf: str, path: Sequence[tuple[str, str]], root: str) -> bool:
         if side not in ("L", "R"):
             raise ValueError(f"bad proof side {side!r}; expected 'L' or 'R'")
         try:
-            current = (
-                _hash_node(sibling, current)
-                if side == "L"
-                else _hash_node(current, sibling)
-            )
+            current = _hash_node(sibling, current) if side == "L" else _hash_node(current, sibling)
         except ValueError:
             return False
     return current == root

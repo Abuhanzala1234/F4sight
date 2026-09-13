@@ -110,17 +110,14 @@ class OnnxYoloDetector:
 
         providers = resolve_execution_providers(cfg, ort.get_available_providers())
         if any(
-            (p[0] if isinstance(p, tuple) else p) == "TensorrtExecutionProvider"
-            for p in providers
+            (p[0] if isinstance(p, tuple) else p) == "TensorrtExecutionProvider" for p in providers
         ):
             # ORT will not create the cache directory itself; a missing path
             # silently disables caching and every start rebuilds the engine.
             Path(cfg.trt_engine_cache_dir).mkdir(parents=True, exist_ok=True)
 
         try:
-            self._session = ort.InferenceSession(
-                str(weights), options, providers=providers
-            )
+            self._session = ort.InferenceSession(str(weights), options, providers=providers)
         except Exception:
             # A GPU provider can be present in the build but unusable on the
             # box — missing CUDA/cuDNN/TensorRT libraries, a driver too old, or
@@ -249,9 +246,7 @@ class OnnxYoloDetector:
         cls_ids = scores_all.argmax(axis=1)
         confs = scores_all.max(axis=1)
 
-        lowest = (
-            min(self.cfg.conf_thresholds.values()) if self.cfg.conf_thresholds else 0.25
-        )
+        lowest = min(self.cfg.conf_thresholds.values()) if self.cfg.conf_thresholds else 0.25
         keep = confs >= lowest
         if not keep.any():
             return []
@@ -278,9 +273,7 @@ class OnnxYoloDetector:
             for i in selected
         ]
 
-    def _nms(
-        self, boxes: np.ndarray, scores: np.ndarray, cls_ids: np.ndarray
-    ) -> list[int]:
+    def _nms(self, boxes: np.ndarray, scores: np.ndarray, cls_ids: np.ndarray) -> list[int]:
         """Greedy NMS, vectorised. Class-agnostic by default.
 
         Class-agnostic matters here: YOLO cheerfully reports the same vehicle as

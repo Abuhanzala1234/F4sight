@@ -43,9 +43,9 @@ class Subscription:
         if self.site_ids and alert.get("site_id") not in self.site_ids:
             return False
         try:
-            return SEVERITY_ORDER.index(
-                alert.get("severity", "info")
-            ) >= SEVERITY_ORDER.index(self.min_severity)
+            return SEVERITY_ORDER.index(alert.get("severity", "info")) >= SEVERITY_ORDER.index(
+                self.min_severity
+            )
         except ValueError:
             return True  # unknown severity: show it rather than hide it
 
@@ -74,9 +74,7 @@ class ConnectionManager:
     async def broadcast(self, message: dict[str, Any]) -> None:
         dead: list[Subscription] = []
         for sub in list(self._subs):
-            if message.get("type") == "alert" and not sub.wants(
-                message.get("alert", {})
-            ):
+            if message.get("type") == "alert" and not sub.wants(message.get("alert", {})):
                 continue
             try:
                 await sub.socket.send_json(message)
@@ -100,9 +98,7 @@ class ConnectionManager:
 
         while self._subs:
             try:
-                entries = await client.xread(
-                    {settings.alert_stream: last_id}, count=32, block=2000
-                )
+                entries = await client.xread({settings.alert_stream: last_id}, count=32, block=2000)
             except Exception:
                 # Redis down degrades fan-out to polling; the DB path is
                 # unaffected (§13). Retry rather than kill the task.
@@ -127,9 +123,7 @@ class ConnectionManager:
     async def _beat(self) -> None:
         while self._subs:
             await asyncio.sleep(15)
-            await self.broadcast(
-                {"type": "heartbeat", "ts": datetime.now(UTC).isoformat()}
-            )
+            await self.broadcast({"type": "heartbeat", "ts": datetime.now(UTC).isoformat()})
 
 
 manager = ConnectionManager()

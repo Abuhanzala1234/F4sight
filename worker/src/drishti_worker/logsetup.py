@@ -25,9 +25,7 @@ __all__ = ["RedactingFilter", "configure_logging"]
 
 # rtsp://user:pass@host  and  postgres://user:pass@host
 _CREDENTIAL_RE = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)[^/@\s]+:[^/@\s]+@")
-_SECRET_KV_RE = re.compile(
-    r"(?i)\b(password|secret|token|api[_-]?key|hmac[_-]?key)\b\s*[=:]\s*\S+"
-)
+_SECRET_KV_RE = re.compile(r"(?i)\b(password|secret|token|api[_-]?key|hmac[_-]?key)\b\s*[=:]\s*\S+")
 
 
 class RedactingFilter(logging.Filter):

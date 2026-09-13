@@ -73,9 +73,7 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
     breakdown that does not sum to its score (P2). Better a loud 500 than a
     confident wrong number on an operator's screen.
     """
-    logger.exception(
-        "invariant violation serving %s %s", request.method, request.url.path
-    )
+    logger.exception("invariant violation serving %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
         content={

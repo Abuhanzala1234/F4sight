@@ -44,9 +44,7 @@ class TestVerifyDocument:
         doc = genuine_document()
         tampered = json.loads(json.dumps(doc))
         tampered["detection"]["track_id"] = 999
-        body = client.post(
-            "/api/v1/verify/document", json={"document": tampered}
-        ).json()
+        body = client.post("/api/v1/verify/document", json={"document": tampered}).json()
         assert body["verdict"] == "TAMPERED"
         assert body["hash_match"] is False
 
@@ -55,18 +53,14 @@ class TestVerifyDocument:
         doc = genuine_document()
         tampered = json.loads(json.dumps(doc))
         tampered["items"][0]["sha256"] = "b" * 64
-        body = client.post(
-            "/api/v1/verify/document", json={"document": tampered}
-        ).json()
+        body = client.post("/api/v1/verify/document", json={"document": tampered}).json()
         assert body["verdict"] == "TAMPERED"
 
     def test_key_reordering_does_not_break_verification(self, client):
         """The whole point of RFC 8785: semantically identical JSON verifies."""
         doc = genuine_document()
         shuffled = dict(reversed(list(doc.items())))
-        body = client.post(
-            "/api/v1/verify/document", json={"document": shuffled}
-        ).json()
+        body = client.post("/api/v1/verify/document", json={"document": shuffled}).json()
         assert body["verdict"] == "VERIFIED"
 
     def test_missing_hash_is_a_400(self, client):
@@ -85,9 +79,7 @@ class TestVerifyDocument:
     def test_no_authentication_required(self, client):
         """P5: tamper-evidence is a property of the record. A third party must
         be able to check it without an account on this system."""
-        response = client.post(
-            "/api/v1/verify/document", json={"document": genuine_document()}
-        )
+        response = client.post("/api/v1/verify/document", json={"document": genuine_document()})
         assert response.status_code == 200
 
 
@@ -96,9 +88,7 @@ class TestAccessControl:
         assert client.get("/api/v1/alerts").status_code == 401
 
     def test_garbage_token_is_rejected(self, client):
-        response = client.get(
-            "/api/v1/alerts", headers={"Authorization": "Bearer not-a-jwt"}
-        )
+        response = client.get("/api/v1/alerts", headers={"Authorization": "Bearer not-a-jwt"})
         assert response.status_code == 401
 
     def test_refresh_token_cannot_call_the_api(self, client):
@@ -106,9 +96,7 @@ class TestAccessControl:
         from drishti_api.settings import get_settings
 
         refresh, _ = create_token("u", "admin", get_settings(), refresh=True)
-        response = client.get(
-            "/api/v1/alerts", headers={"Authorization": f"Bearer {refresh}"}
-        )
+        response = client.get("/api/v1/alerts", headers={"Authorization": f"Bearer {refresh}"})
         assert response.status_code == 401
         assert "refresh" in response.json()["detail"].lower()
 

@@ -154,9 +154,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     try:
         import yaml
     except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "PyYAML is required to load config; run `make install`"
-        ) from exc
+        raise RuntimeError("PyYAML is required to load config; run `make install`") from exc
     if not path.exists():
         return {}
     with path.open("r", encoding="utf-8") as fh:
@@ -164,9 +162,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ValueError(
-            f"{path} must contain a mapping at the top level, got {type(data)}"
-        )
+        raise ValueError(f"{path} must contain a mapping at the top level, got {type(data)}")
     return data
 
 
@@ -245,9 +241,7 @@ def load_config(
             sources.append(path.name)
 
     chosen_profile = (
-        profile
-        or env.get("DRISHTI_PROFILE")
-        or merged.get("runtime", {}).get("profile", "laptop")
+        profile or env.get("DRISHTI_PROFILE") or merged.get("runtime", {}).get("profile", "laptop")
     )
     profile_path = root / "profiles" / f"{chosen_profile}.yaml"
     if profile_path.exists():
@@ -258,9 +252,7 @@ def load_config(
             f"unknown profile {chosen_profile!r}: {profile_path} does not exist"
         )
 
-    chosen_site = (
-        site or env.get("DRISHTI_SITE") or merged.get("runtime", {}).get("site", "")
-    )
+    chosen_site = site or env.get("DRISHTI_SITE") or merged.get("runtime", {}).get("site", "")
     if chosen_site:
         site_path = root / "sites" / f"{chosen_site}.yaml"
         if site_path.exists():

@@ -45,9 +45,7 @@ DEFAULT_PROVIDERS: tuple[str, ...] = (
 
 #: Providers for which ``fp16`` and the GPU tuning knobs mean anything. Setting
 #: them on CPU or CoreML is not an error, it is just noise in the session log.
-GPU_PROVIDERS: frozenset[str] = frozenset(
-    {"TensorrtExecutionProvider", "CUDAExecutionProvider"}
-)
+GPU_PROVIDERS: frozenset[str] = frozenset({"TensorrtExecutionProvider", "CUDAExecutionProvider"})
 
 
 def _as_provider_tuple(value: Any) -> tuple[str, ...]:
@@ -88,9 +86,7 @@ class DetectorConfig:
     nms_iou: float = 0.45
     max_detections: int = 100
     class_agnostic_nms: bool = True
-    conf_thresholds: Mapping[str, float] = field(
-        default_factory=lambda: {"default": 0.50}
-    )
+    conf_thresholds: Mapping[str, float] = field(default_factory=lambda: {"default": 0.50})
     min_box_area_px: float = 200.0
     min_box_height_px: float = 18.0
     class_map: Mapping[int, Mapping[str, Any]] = field(default_factory=dict)
@@ -115,13 +111,9 @@ class DetectorConfig:
             fp16=bool(block.get("fp16", True)),
             device_id=int(gpu.get("device_id", 0)),
             gpu_mem_limit_mb=int(gpu.get("gpu_mem_limit_mb", 0)),
-            cudnn_conv_algo_search=str(
-                gpu.get("cudnn_conv_algo_search", "HEURISTIC")
-            ).upper(),
+            cudnn_conv_algo_search=str(gpu.get("cudnn_conv_algo_search", "HEURISTIC")).upper(),
             trt_workspace_mb=int(gpu.get("trt_workspace_mb", 1024)),
-            trt_engine_cache_dir=str(
-                gpu.get("trt_engine_cache_dir", "models/trt_cache")
-            ),
+            trt_engine_cache_dir=str(gpu.get("trt_engine_cache_dir", "models/trt_cache")),
             trt_timing_cache=bool(gpu.get("trt_timing_cache", True)),
             max_batch=int(batching.get("max_batch", 8)),
             max_wait_ms=int(batching.get("max_wait_ms", 15)),
@@ -135,9 +127,7 @@ class DetectorConfig:
         )
 
     def threshold_for(self, cls: str) -> float:
-        return float(
-            self.conf_thresholds.get(cls, self.conf_thresholds.get("default", 0.50))
-        )
+        return float(self.conf_thresholds.get(cls, self.conf_thresholds.get("default", 0.50)))
 
 
 def resolve_execution_providers(
@@ -240,12 +230,8 @@ class MockDetector:
                 x = 60 + (self._calls * 9) % 500
                 out.append(
                     [
-                        RawDetection(
-                            cls_id=0, conf=0.88, box=(x, 220.0, x + 46.0, 350.0)
-                        ),
-                        RawDetection(
-                            cls_id=2, conf=0.79, box=(400.0, 300.0, 560.0, 400.0)
-                        ),
+                        RawDetection(cls_id=0, conf=0.88, box=(x, 220.0, x + 46.0, 350.0)),
+                        RawDetection(cls_id=2, conf=0.79, box=(400.0, 300.0, 560.0, 400.0)),
                     ]
                 )
             self._calls += 1
@@ -294,9 +280,7 @@ def build_detector(cfg: DetectorConfig) -> Detector:
                     f"detector warmup failed for backend={cfg.backend} "
                     f"weights={cfg.weights}: {exc}"
                 ) from exc
-            logger.exception(
-                "detector warmup failed; continuing because warmup_required=false"
-            )
+            logger.exception("detector warmup failed; continuing because warmup_required=false")
             spent = time.monotonic() - started
         logger.info(
             "detector ready backend=%s model=%s input=%dx%d warmup=%d iters in %.2fs",

@@ -59,9 +59,7 @@ class FabricLedger:
                 "in config/ledger.yaml (the default, and what `make demo` uses)."
             ) from exc
 
-        cert_path = (
-            self.crypto_path / "users" / "User1" / "msp" / "signcerts" / "cert.pem"
-        )
+        cert_path = self.crypto_path / "users" / "User1" / "msp" / "signcerts" / "cert.pem"
         key_dir = self.crypto_path / "users" / "User1" / "msp" / "keystore"
         tls_path = self.crypto_path / "peers" / "peer0" / "tls" / "ca.crt"
         for path in (cert_path, tls_path):
@@ -75,9 +73,7 @@ class FabricLedger:
         identity = Identity(self.msp_id, cert_path.read_bytes())
         signer = Signer(next(key_dir.glob("*")).read_bytes())
 
-        self._gateway = Gateway.connect(
-            client=channel, identity=identity, signer=signer
-        )
+        self._gateway = Gateway.connect(client=channel, identity=identity, signer=signer)
         network = self._gateway.get_network(self.channel)
         self._contract = network.get_contract(self.chaincode)
         logger.info(

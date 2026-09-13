@@ -111,9 +111,7 @@ class KalmanBoxFilter:
         )
         return mean, np.diag(np.square(std))
 
-    def predict(
-        self, mean: np.ndarray, cov: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def predict(self, mean: np.ndarray, cov: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         h = mean[3]
         std = np.array(
             [
@@ -248,9 +246,7 @@ class _TrackState:
 # ---------------------------------------------------------------------------
 
 
-def _iou_distance(
-    tracks: Sequence[_TrackState], dets: Sequence[Detection]
-) -> np.ndarray:
+def _iou_distance(tracks: Sequence[_TrackState], dets: Sequence[Detection]) -> np.ndarray:
     """Cost matrix of 1 - IoU. Shape (len(tracks), len(dets))."""
     if not tracks or not dets:
         return np.zeros((len(tracks), len(dets)), dtype=np.float64)
@@ -351,9 +347,7 @@ class ByteTracker:
         # --- what keeps an ID alive through an occlusion.
         remaining = [pool[i] for i in u_tracks]
         cost_low = _iou_distance(remaining, low)
-        matches_low, u_tracks_low, _ = _linear_assignment(
-            cost_low, self.cfg.match_thresh_low
-        )
+        matches_low, u_tracks_low, _ = _linear_assignment(cost_low, self.cfg.match_thresh_low)
         for ti, di in matches_low:
             self._apply(remaining[ti], low[di], ts)
             activated.append(remaining[ti])

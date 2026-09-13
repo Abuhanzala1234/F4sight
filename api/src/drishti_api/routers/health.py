@@ -68,9 +68,7 @@ def _check_minio(settings: Settings) -> ComponentHealth:
         return ComponentHealth(
             name="minio",
             ok=exists,
-            detail=(
-                "" if exists else f"bucket {settings.minio_bucket_evidence} is missing"
-            ),
+            detail=("" if exists else f"bucket {settings.minio_bucket_evidence} is missing"),
         )
     except Exception as exc:
         return ComponentHealth(name="minio", ok=False, detail=str(exc)[:200])
@@ -122,9 +120,7 @@ async def metrics(db: Annotated[AsyncSession, Depends(get_db)]) -> Response:
             *[f'drishti_alerts_24h{{severity="{sev}"}} {count}' for sev, count in rows],
         ]
         pending = (
-            await db.execute(
-                text("SELECT count(*) FROM alert WHERE ledger_status = 'pending'")
-            )
+            await db.execute(text("SELECT count(*) FROM alert WHERE ledger_status = 'pending'"))
         ).scalar_one()
         lines += [
             "# HELP drishti_ledger_pending Alerts awaiting a ledger anchor",

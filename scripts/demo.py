@@ -28,9 +28,7 @@ BOLD, DIM, GREEN, RED, RESET = "\033[1m", "\033[2m", "\033[32m", "\033[31m", "\0
 
 
 class Service:
-    def __init__(
-        self, name: str, argv: list[str], ready_url: str | None = None
-    ) -> None:
+    def __init__(self, name: str, argv: list[str], ready_url: str | None = None) -> None:
         self.name = name
         self.argv = argv
         self.ready_url = ready_url
@@ -147,9 +145,7 @@ def main() -> int:
 
         for service in started:
             if not service.alive:
-                print(
-                    f"{RED}{service.name} exited unexpectedly{RESET}", file=sys.stderr
-                )
+                print(f"{RED}{service.name} exited unexpectedly{RESET}", file=sys.stderr)
         return 1
 
     except KeyboardInterrupt:

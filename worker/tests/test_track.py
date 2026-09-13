@@ -22,9 +22,7 @@ def at(i: int):
 class TestAssociation:
     def test_stable_id_across_frames(self):
         tracker = ByteTracker()
-        ids = {
-            tracker.update([person(100 + i * 10)], at(i))[0].track_id for i in range(20)
-        }
+        ids = {tracker.update([person(100 + i * 10)], at(i))[0].track_id for i in range(20)}
         assert ids == {1}
 
     def test_id_survives_low_confidence_occlusion(self):
@@ -107,9 +105,7 @@ class TestLifecycle:
 
     def test_foot_point_is_bottom_centre(self):
         tracker = ByteTracker()
-        track = tracker.update(
-            [Detection("person", 0.9, (100.0, 0.0, 200.0, 400.0), 0)], at(0)
-        )[0]
+        track = tracker.update([Detection("person", 0.9, (100.0, 0.0, 200.0, 400.0), 0)], at(0))[0]
         fx, fy = track.foot_point
         assert fx == pytest.approx(150.0, abs=1.0)
         assert fy == pytest.approx(400.0, abs=1.0)

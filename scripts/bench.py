@@ -158,9 +158,7 @@ def main() -> int:
     model_w, model_h = detector.input_size
     model_input = rng.integers(0, 255, (model_h, model_w, 3), dtype=np.uint8)
     results.append(
-        bench_stage(
-            "detect (batch=1)", lambda _: detector.infer([model_input]), args.iterations
-        )
+        bench_stage("detect (batch=1)", lambda _: detector.infer([model_input]), args.iterations)
     )
 
     # Batched throughput is the number the multi-camera claim in §5 actually
@@ -178,10 +176,7 @@ def main() -> int:
         )
         per_frame_batched = batched["p95_ms"] / batch_size
         results.append(
-            {
-                k: (v / batch_size if k.endswith("_ms") else v)
-                for k, v in batched.items()
-            }
+            {k: (v / batch_size if k.endswith("_ms") else v) for k, v in batched.items()}
         )
 
     evqm = EVQM(EVQMConfig.from_mapping(cfg.as_dict()), "bench")
@@ -189,9 +184,7 @@ def main() -> int:
 
     def run_evqm(_: int) -> None:
         frame_counter["n"] += 1
-        evqm.observe(
-            Frame("bench", frame_counter["n"], datetime.now(UTC), image, 1280, 720)
-        )
+        evqm.observe(Frame("bench", frame_counter["n"], datetime.now(UTC), image, 1280, 720))
 
     results.append(bench_stage("evqm sample", run_evqm, args.iterations))
 
@@ -269,9 +262,7 @@ def main() -> int:
 
     signals = [Signal("ZONE_INTRUSION", 40.0, {}), Signal("NIGHT_MOVEMENT", 20.0, {})]
     results.append(
-        bench_stage(
-            "risk score", lambda _: score(signals, RiskContext()), args.iterations
-        )
+        bench_stage("risk score", lambda _: score(signals, RiskContext()), args.iterations)
     )
 
     from drishti_worker.evidence import assemble, evidence_hash
@@ -289,9 +280,7 @@ def main() -> int:
         created_at=datetime.now(UTC).isoformat(),
     )
     results.append(
-        bench_stage(
-            "evidence hash (JCS)", lambda _: evidence_hash(doc), args.iterations
-        )
+        bench_stage("evidence hash (JCS)", lambda _: evidence_hash(doc), args.iterations)
     )
 
     hot_path = sum(

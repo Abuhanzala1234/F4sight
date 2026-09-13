@@ -100,9 +100,7 @@ def download(url: str, dest: Path) -> bool:
     tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"  ↓ {url}")
     try:
-        with urllib.request.urlopen(url, timeout=120) as response, tmp.open(
-            "wb"
-        ) as out:
+        with urllib.request.urlopen(url, timeout=120) as response, tmp.open("wb") as out:
             shutil.copyfileobj(response, out)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         print(f"  ✗ download failed: {exc}", file=sys.stderr)
@@ -250,12 +248,8 @@ def verify_only() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--force", action="store_true", help="re-download even if present"
-    )
-    parser.add_argument(
-        "--verify-only", action="store_true", help="check hashes, download nothing"
-    )
+    parser.add_argument("--force", action="store_true", help="re-download even if present")
+    parser.add_argument("--verify-only", action="store_true", help="check hashes, download nothing")
     parser.add_argument("--skip-optional", action="store_true")
     args = parser.parse_args()
 
@@ -298,9 +292,7 @@ def main() -> int:
     )
 
     if failed_required:
-        print(
-            f"✗ required models failed: {', '.join(failed_required)}", file=sys.stderr
-        )
+        print(f"✗ required models failed: {', '.join(failed_required)}", file=sys.stderr)
         print("  The worker can still run with detector.backend=mock.", file=sys.stderr)
         return 1
     return 0

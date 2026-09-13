@@ -51,9 +51,7 @@ class TestRiskSumInvariant:
         """If the stored breakdown does not add up, the explanation we would
         show is a lie. Better a 500 than a confident wrong number."""
         with pytest.raises(ValidationError, match="does not sum"):
-            AlertDetail.model_validate(
-                _alert(60.0, [{"code": "ZONE_INTRUSION", "weight": 40.0}])
-            )
+            AlertDetail.model_validate(_alert(60.0, [{"code": "ZONE_INTRUSION", "weight": 40.0}]))
 
     def test_negative_contributions_are_fine(self):
         alert = AlertDetail.model_validate(
@@ -69,9 +67,7 @@ class TestRiskSumInvariant:
 
     def test_rounding_tolerance(self):
         AlertDetail.model_validate(
-            _alert(
-                33.33, [{"code": "A", "weight": 11.11}, {"code": "B", "weight": 22.22}]
-            )
+            _alert(33.33, [{"code": "A", "weight": 11.11}, {"code": "B", "weight": 22.22}])
         )
 
 
@@ -80,15 +76,11 @@ class TestZoneValidation:
         """Zones are stored normalised so a resolution change does not
         invalidate every polygon an operator drew (§6.2)."""
         with pytest.raises(ValidationError, match="normalised"):
-            ZoneIn(
-                name="z", kind="area", polygon=[(0.1, 0.1), (640.0, 0.5), (0.2, 0.9)]
-            )
+            ZoneIn(name="z", kind="area", polygon=[(0.1, 0.1), (640.0, 0.5), (0.2, 0.9)])
 
     def test_tripwire_needs_exactly_two_points(self):
         with pytest.raises(ValidationError, match="exactly 2 points"):
-            ZoneIn(
-                name="w", kind="tripwire", polygon=[(0.1, 0.1), (0.5, 0.5), (0.9, 0.9)]
-            )
+            ZoneIn(name="w", kind="tripwire", polygon=[(0.1, 0.1), (0.5, 0.5), (0.9, 0.9)])
 
     def test_area_needs_three_points(self):
         with pytest.raises(ValidationError, match="at least 3 points"):

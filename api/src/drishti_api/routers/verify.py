@@ -189,9 +189,7 @@ async def verify_document(payload: DocumentVerifyIn) -> VerificationOut:
         canonical = canonicalise(strip_excluded(document))
     except (TypeError, ValueError) as exc:
         # Loud, specific failure. P5.
-        raise HTTPException(
-            422, f"document cannot be canonicalised (RFC 8785): {exc}"
-        ) from exc
+        raise HTTPException(422, f"document cannot be canonicalised (RFC 8785): {exc}") from exc
 
     computed = hashlib.sha256(canonical).hexdigest()
     ok = computed == expected

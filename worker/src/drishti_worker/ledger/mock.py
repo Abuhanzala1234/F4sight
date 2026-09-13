@@ -44,9 +44,7 @@ class MockLedger:
 
     def anchor(self, merkle_root: str, meta: Mapping[str, Any]) -> AnchorReceipt:
         if len(merkle_root) != 64:
-            raise ValueError(
-                f"merkle root must be a 64-char hex digest, got {len(merkle_root)}"
-            )
+            raise ValueError(f"merkle root must be a 64-char hex digest, got {len(merkle_root)}")
 
         with self._lock:
             prev_hash = self._tail_hash()
@@ -68,9 +66,7 @@ class MockLedger:
             entry["tx_id"] = f"mock:{block_number}:{entry_hash[:16]}"
 
             with self.path.open("a", encoding="utf-8") as fh:
-                fh.write(
-                    json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n"
-                )
+                fh.write(json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n")
                 fh.flush()
             self._height += 1
 
@@ -136,11 +132,7 @@ class MockLedger:
             stored = entry.get("entry_hash", "")
             recomputed = sha256(
                 json.dumps(
-                    {
-                        k: v
-                        for k, v in entry.items()
-                        if k not in ("entry_hash", "tx_id")
-                    },
+                    {k: v for k, v in entry.items() if k not in ("entry_hash", "tx_id")},
                     sort_keys=True,
                     separators=(",", ":"),
                 ).encode("utf-8")
@@ -166,9 +158,7 @@ class MockLedger:
                 try:
                     yield json.loads(line)
                 except json.JSONDecodeError:
-                    logger.exception(
-                        "mock ledger line %d is not valid JSON; skipping it", line_no
-                    )
+                    logger.exception("mock ledger line %d is not valid JSON; skipping it", line_no)
 
     def _count_entries(self) -> int:
         return sum(1 for _ in self._iter_entries())

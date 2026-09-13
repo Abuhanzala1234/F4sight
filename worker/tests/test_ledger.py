@@ -29,10 +29,7 @@ class TestMockLedger:
         assert receipt.tx_id.startswith("mock:")
 
     def test_block_numbers_increment(self, ledger):
-        blocks = [
-            ledger.anchor(root(str(i)), {"leaf_count": 1}).block_number
-            for i in range(4)
-        ]
+        blocks = [ledger.anchor(root(str(i)), {"leaf_count": 1}).block_number for i in range(4)]
         assert blocks == [0, 1, 2, 3]
 
     def test_get_round_trip(self, ledger):

@@ -90,11 +90,7 @@ class TestConfig:
     def test_per_class_thresholds_differ(self):
         """P3: person and vehicle deserve different thresholds."""
         cfg = DetectorConfig.from_mapping(
-            {
-                "detector": {
-                    "conf_thresholds": {"person": 0.40, "bag": 0.55, "default": 0.5}
-                }
-            }
+            {"detector": {"conf_thresholds": {"person": 0.40, "bag": 0.55, "default": 0.5}}}
         )
         assert cfg.threshold_for("person") < cfg.threshold_for("bag")
 
@@ -325,9 +321,7 @@ class TestCoordinateMappingInvariant:
 
     def test_unmapped_classes_are_dropped_before_the_tracker(self):
         pipeline = self._pipeline()
-        raw = [
-            RawDetection(cls_id=63, conf=0.99, box=(0.0, 0.0, 100.0, 100.0))
-        ]  # 'laptop'
+        raw = [RawDetection(cls_id=63, conf=0.99, box=(0.0, 0.0, 100.0, 100.0))]  # 'laptop'
         assert pipeline._to_detections(raw, FrameTransform(1.0, 1.0)) == []
 
     def test_class_attributes_travel_with_the_detection(self):

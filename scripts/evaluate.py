@@ -147,9 +147,7 @@ def run_clip(
     model_w, model_h = detector.input_size
     result = ClipResult(
         clip=clip_path.name,
-        duration_s=(
-            capture.get(cv2.CAP_PROP_FRAME_COUNT) / source_fps if source_fps else 0.0
-        ),
+        duration_s=(capture.get(cv2.CAP_PROP_FRAME_COUNT) / source_fps if source_fps else 0.0),
         expected=list(label.get("expect", [])),  # type: ignore[arg-type]
     )
 
@@ -228,9 +226,7 @@ def run_clip(
                     track_age_frames=track.age_frames,
                 ),
             )
-            result.fired.append(
-                {"kind": primary.code, "t": clip_t, "score": risk.score}
-            )
+            result.fired.append({"kind": primary.code, "t": clip_t, "score": risk.score})
 
         index += 1
 
@@ -326,9 +322,7 @@ def main() -> int:
     latencies = [x for r in results for x in r.latencies_s]
     mean_latency = sum(latencies) / len(latencies) if latencies else 0.0
 
-    per_rule: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"tp": 0, "fp": 0, "fn": 0}
-    )
+    per_rule: dict[str, dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
     for r in results:
         for a in r.fired:
             per_rule[str(a["kind"])]["fp"] += 0
@@ -372,8 +366,7 @@ def main() -> int:
 
     Path(args.out).write_text("\n".join(lines), encoding="utf-8")
     print(
-        f"\nprecision {precision:.3f}  recall {recall:.3f}  "
-        f"FP/idle-hour {fp_per_idle_hour:.2f}"
+        f"\nprecision {precision:.3f}  recall {recall:.3f}  " f"FP/idle-hour {fp_per_idle_hour:.2f}"
     )
     print(f"wrote {args.out}")
     return 0

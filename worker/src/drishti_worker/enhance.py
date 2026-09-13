@@ -56,9 +56,7 @@ class EnhanceConfig:
             unsharp_amount=float(block.get("unsharp_amount", 0.4)),
             denoise_d=int(block.get("denoise_d", 5)),
             denoise_sigma=float(block.get("denoise_sigma", 50.0)),
-            zerodce_weights=str(
-                block.get("zerodce_weights", "models/enhance/zero_dce_pp.onnx")
-            ),
+            zerodce_weights=str(block.get("zerodce_weights", "models/enhance/zero_dce_pp.onnx")),
             use_zerodce=bool(block.get("use_zerodce", False)),
         )
 
@@ -85,12 +83,8 @@ def _clahe(image: Any, cfg: EnhanceConfig) -> Any:
 
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     l_chan, a_chan, b_chan = cv2.split(lab)
-    clahe = cv2.createCLAHE(
-        clipLimit=cfg.clahe_clip, tileGridSize=(cfg.clahe_grid, cfg.clahe_grid)
-    )
-    return cv2.cvtColor(
-        cv2.merge((clahe.apply(l_chan), a_chan, b_chan)), cv2.COLOR_LAB2BGR
-    )
+    clahe = cv2.createCLAHE(clipLimit=cfg.clahe_clip, tileGridSize=(cfg.clahe_grid, cfg.clahe_grid))
+    return cv2.cvtColor(cv2.merge((clahe.apply(l_chan), a_chan, b_chan)), cv2.COLOR_LAB2BGR)
 
 
 def _dehaze(image: Any, cfg: EnhanceConfig) -> Any:
@@ -137,17 +131,13 @@ def _dehaze(image: Any, cfg: EnhanceConfig) -> Any:
     atmosphere = small.reshape(-1, 3)[idx].max(axis=0)
     atmosphere = np.maximum(atmosphere, 1e-3)
 
-    transmission = 1.0 - cfg.dehaze_omega * cv2.erode(
-        (small / atmosphere).min(axis=2), kernel
-    )
+    transmission = 1.0 - cfg.dehaze_omega * cv2.erode((small / atmosphere).min(axis=2), kernel)
     transmission = np.maximum(transmission, cfg.dehaze_t0)
 
     if scale > 1:
         # Bilinear upsample: the transmission field is smooth, so this is
         # visually indistinguishable from computing it at full resolution.
-        transmission = cv2.resize(
-            transmission, (width, height), interpolation=cv2.INTER_LINEAR
-        )
+        transmission = cv2.resize(transmission, (width, height), interpolation=cv2.INTER_LINEAR)
 
     out = (img - atmosphere) / transmission[:, :, None] + atmosphere
     return (np.clip(out, 0.0, 1.0) * 255.0).astype(np.uint8)
@@ -175,9 +165,7 @@ def _denoise(image: Any, cfg: EnhanceConfig) -> Any:
     """
     import cv2
 
-    return cv2.bilateralFilter(
-        image, cfg.denoise_d, cfg.denoise_sigma, cfg.denoise_sigma
-    )
+    return cv2.bilateralFilter(image, cfg.denoise_d, cfg.denoise_sigma, cfg.denoise_sigma)
 
 
 def enhance_for_model(
@@ -232,12 +220,8 @@ def enhance_for_model(
             }
 
         else:
-            logger.warning(
-                "unknown EVQM profile %r; passing frame through unchanged", profile
-            )
-            return EnhancementResult(
-                image=image, params={"profile": profile}, applied=()
-            )
+            logger.warning("unknown EVQM profile %r; passing frame through unchanged", profile)
+            return EnhancementResult(image=image, params={"profile": profile}, applied=())
 
     except Exception:
         # No silent failures (CLAUDE.md). Log with context, degrade to the
@@ -252,9 +236,7 @@ def enhance_for_model(
             applied=(),
         )
 
-    return EnhancementResult(
-        image=out, params={"profile": profile, **params}, applied=applied
-    )
+    return EnhancementResult(image=out, params={"profile": profile, **params}, applied=applied)
 
 
 def _zerodce(image: Any, cfg: EnhanceConfig) -> Any:

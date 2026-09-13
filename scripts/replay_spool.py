@@ -31,9 +31,7 @@ def dsn() -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spool", default="spool")
-    parser.add_argument(
-        "--delete", action="store_true", help="remove files once fully replayed"
-    )
+    parser.add_argument("--delete", action="store_true", help="remove files once fully replayed")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -54,9 +52,7 @@ def main() -> int:
     with psycopg.connect(dsn()) as conn:
         for path in files:
             file_ok = True
-            for line_no, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1
-            ):
+            for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 if not line.strip():
                     continue
                 total += 1
@@ -69,9 +65,7 @@ def main() -> int:
                     continue
 
                 if args.dry_run:
-                    logger.info(
-                        "would replay %s (%s)", alert["alert_id"], alert["kind"]
-                    )
+                    logger.info("would replay %s (%s)", alert["alert_id"], alert["kind"])
                     continue
 
                 try:

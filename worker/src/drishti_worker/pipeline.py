@@ -42,6 +42,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .alerting import FrameBuffer
 from .detect import Detector, DetectorConfig
 from .enhance import EnhanceConfig, enhance_for_model
 from .evqm import EVQM, EVQMConfig
@@ -147,6 +148,7 @@ class CameraWorker:
         frame_queue: _DropOldestQueue,
         on_alert: Any,
         on_state: Any = None,
+        clip_pre_roll_s: float = 5.0,
     ) -> None:
         self.camera = camera
         self.zones = list(zones)
@@ -163,9 +165,14 @@ class CameraWorker:
         self._stage_thread: threading.Thread | None = None
         self.stats = PipelineStats()
 
-        self.reader = build_reader(
-            camera.camera_id, source, ingest_cfg, self._on_frame, on_state
-        )
+        # ORIGINAL frames only (P4), pushed in ``_on_frame`` before enhancement.
+        # Sized with headroom over the pre-roll window so a momentary fps dip
+        # does not truncate the clip an alert is about to ask for.
+        margin = 1.5
+        buffer_frames = max(2, int(clip_pre_roll_s * camera.analytics_fps * margin))
+        self.frame_buffer = FrameBuffer(max_frames=buffer_frames)
+
+        self.reader = build_reader(camera.camera_id, source, ingest_cfg, self._on_frame, on_state)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -209,8 +216,12 @@ class CameraWorker:
         the letterbox resize — see Pipeline._run_batch. Enhancing the full frame
         first means processing 921k pixels and discarding three quarters of them
         in the resize, which measured 50 ms per frame against an 8 ms budget.
+
+        The frame buffer is pushed here too, deliberately before enhancement:
+        it is what a clip is cut from, and evidence is the ORIGINAL frame (P4).
         """
         self.stats.frames_in += 1
+        self.frame_buffer.push(frame)
         self.evqm.observe(frame)
         self._frame_queue.put_latest((self, frame, self.evqm.profile, self.enhance_cfg))
 
@@ -305,6 +316,7 @@ class CameraWorker:
                 enhancement_params=bundle.enhancement_params,
                 escalated=decision.decision is Decision.ESCALATE,
                 suppressed_since_last=decision.suppressed_count,
+                frame_buffer=self.frame_buffer,
             )
 
     def health(self) -> dict[str, Any]:
@@ -357,9 +369,7 @@ class Pipeline:
             target=self._infer_loop, name="inference", daemon=True
         )
         self._infer_thread.start()
-        self._stats_thread = threading.Thread(
-            target=self._stats_loop, name="stats", daemon=True
-        )
+        self._stats_thread = threading.Thread(target=self._stats_loop, name="stats", daemon=True)
         self._stats_thread.start()
         for worker in self.workers.values():
             worker.start()
@@ -428,9 +438,7 @@ class Pipeline:
         enhancements: list[Any] = []
 
         for _worker, frame, profile, enhance_cfg in batch:
-            transform = FrameTransform.letterbox(
-                (frame.width, frame.height), (model_w, model_h)
-            )
+            transform = FrameTransform.letterbox((frame.width, frame.height), (model_w, model_h))
             resized = cv2.resize(
                 frame.image,
                 (
@@ -442,9 +450,9 @@ class Pipeline:
             enhanced = enhance_for_model(resized, profile, enhance_cfg)
             canvas = np.zeros((model_h, model_w, 3), dtype=np.uint8)
             y0, x0 = int(transform.pad_y), int(transform.pad_x)
-            canvas[
-                y0 : y0 + enhanced.image.shape[0], x0 : x0 + enhanced.image.shape[1]
-            ] = enhanced.image
+            canvas[y0 : y0 + enhanced.image.shape[0], x0 : x0 + enhanced.image.shape[1]] = (
+                enhanced.image
+            )
             images.append(canvas)
             transforms.append(transform)
             enhancements.append(enhanced)
@@ -453,9 +461,7 @@ class Pipeline:
         try:
             raw_batches = self.detector.infer(images)
         except Exception:
-            logger.exception(
-                "inference failed for a batch of %d frames; dropping it", len(batch)
-            )
+            logger.exception("inference failed for a batch of %d frames; dropping it", len(batch))
             return
         elapsed_ms = (time.monotonic() - started) * 1000.0
 
@@ -486,9 +492,7 @@ class Pipeline:
                     worker.camera.code,
                 )
 
-    def _to_detections(
-        self, raws: Sequence[Any], transform: FrameTransform
-    ) -> list[Detection]:
+    def _to_detections(self, raws: Sequence[Any], transform: FrameTransform) -> list[Detection]:
         cfg = self.detector_cfg
         out: list[Detection] = []
         for raw in raws:

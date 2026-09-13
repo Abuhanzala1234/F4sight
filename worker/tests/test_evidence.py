@@ -69,10 +69,7 @@ class TestEcmaScriptNumbers:
     @settings(max_examples=500)
     def test_round_trips_through_json(self, x):
         """Whatever we emit must parse back to the identical double."""
-        assert (
-            json.loads(es_number_to_string(x)) == pytest.approx(x, rel=0, abs=0)
-            or x == 0
-        )
+        assert json.loads(es_number_to_string(x)) == pytest.approx(x, rel=0, abs=0) or x == 0
 
 
 class TestCanonicalisation:
@@ -175,9 +172,7 @@ class TestAssembleAndVerify:
     def test_enhanced_evidence_is_refused(self):
         """P4, enforced in code as well as in the database."""
         with pytest.raises(ValueError, match="enhanced"):
-            self._doc(
-                items=[{"kind": "snapshot", "sha256": "ab" * 32, "enhanced": True}]
-            )
+            self._doc(items=[{"kind": "snapshot", "sha256": "ab" * 32, "enhanced": True}])
 
     def test_tampering_is_detected_with_a_diff(self):
         doc = self._doc()

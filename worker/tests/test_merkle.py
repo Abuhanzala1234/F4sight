@@ -22,9 +22,7 @@ def leaf(i: int) -> str:
     return hashlib.sha256(f"evidence-{i}".encode()).hexdigest()
 
 
-@pytest.mark.parametrize(
-    "n", [1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 100, 256, 257]
-)
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 100, 256, 257])
 def test_every_leaf_verifies(n):
     leaves = [leaf(i) for i in range(n)]
     tree = build_tree(leaves)

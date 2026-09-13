@@ -77,9 +77,7 @@ def build_ledger(cfg: Mapping[str, Any]) -> LedgerBackend:
     if backend == "mock":
         from .mock import MockLedger
 
-        return MockLedger(
-            block.get("mock", {}).get("path", "ledger_data/mock_ledger.jsonl")
-        )
+        return MockLedger(block.get("mock", {}).get("path", "ledger_data/mock_ledger.jsonl"))
     if backend == "fabric":
         from .fabric import FabricLedger
 

@@ -32,9 +32,7 @@ __all__ = ["AnchorService", "main"]
 
 
 class AnchorService:
-    def __init__(
-        self, dsn: str, ledger: Any, interval_s: float = 30.0, max_leaves: int = 512
-    ):
+    def __init__(self, dsn: str, ledger: Any, interval_s: float = 30.0, max_leaves: int = 512):
         self.dsn = dsn
         self.ledger = ledger
         self.interval_s = interval_s
@@ -100,8 +98,7 @@ class AnchorService:
             health = self.ledger.health()
             if not health.available:
                 logger.warning(
-                    "ledger unavailable (%s); %d alerts stay pending. "
-                    "Alerting is unaffected.",
+                    "ledger unavailable (%s); %d alerts stay pending. " "Alerting is unaffected.",
                     health.detail,
                     len(rows),
                 )
@@ -134,9 +131,7 @@ class AnchorService:
             ).fetchone()
             batch_id = batch_row[0]
 
-            for index, (alert_id, leaf) in enumerate(
-                zip(alert_ids, leaves, strict=True)
-            ):
+            for index, (alert_id, leaf) in enumerate(zip(alert_ids, leaves, strict=True)):
                 path = proof(tree, index)
                 conn.execute(
                     """
@@ -163,9 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config, profile=args.profile, site=args.site)
-    configure_logging(
-        cfg.get("logging.level", "INFO"), cfg.get("logging.format", "console")
-    )
+    configure_logging(cfg.get("logging.level", "INFO"), cfg.get("logging.format", "console"))
 
     import os
 

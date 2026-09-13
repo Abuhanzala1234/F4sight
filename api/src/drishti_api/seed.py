@@ -90,9 +90,7 @@ CAMERAS = [
                 "severity_base": 3,
                 "schedule": {
                     "tz": "Asia/Kolkata",
-                    "windows": [
-                        {"days": [0, 1, 2, 3, 4, 5, 6], "from": "18:00", "to": "06:30"}
-                    ],
+                    "windows": [{"days": [0, 1, 2, 3, 4, 5, 6], "from": "18:00", "to": "06:30"}],
                 },
             },
         ],
@@ -125,9 +123,7 @@ WATCHLIST_PLATES = [
 async def seed(session: AsyncSession, site_code: str, profile: str) -> None:
     settings = get_settings()
 
-    site = (
-        await session.execute(select(Site).where(Site.code == site_code))
-    ).scalar_one_or_none()
+    site = (await session.execute(select(Site).where(Site.code == site_code))).scalar_one_or_none()
     if site is None:
         site = Site(
             code=site_code,
@@ -166,9 +162,7 @@ async def seed(session: AsyncSession, site_code: str, profile: str) -> None:
     for spec in CAMERAS:
         camera = (
             await session.execute(
-                select(Camera).where(
-                    Camera.site_id == site.id, Camera.code == spec["code"]
-                )
+                select(Camera).where(Camera.site_id == site.id, Camera.code == spec["code"])
             )
         ).scalar_one_or_none()
         if camera is None:
@@ -191,9 +185,7 @@ async def seed(session: AsyncSession, site_code: str, profile: str) -> None:
         for zone_spec in spec["zones"]:
             zone = (
                 await session.execute(
-                    select(Zone).where(
-                        Zone.camera_id == camera.id, Zone.name == zone_spec["name"]
-                    )
+                    select(Zone).where(Zone.camera_id == camera.id, Zone.name == zone_spec["name"])
                 )
             ).scalar_one_or_none()
             if zone is None:

@@ -86,21 +86,15 @@ async def list_alerts(
 
     rows = list(
         (
-            await db.execute(
-                stmt.order_by(Alert.ts_utc.desc(), Alert.id.desc()).limit(limit + 1)
-            )
+            await db.execute(stmt.order_by(Alert.ts_utc.desc(), Alert.id.desc()).limit(limit + 1))
         ).scalars()
     )
 
     has_more = len(rows) > limit
     page = rows[:limit]
-    next_cursor = (
-        _encode_cursor(page[-1].ts_utc, page[-1].id) if has_more and page else None
-    )
+    next_cursor = _encode_cursor(page[-1].ts_utc, page[-1].id) if has_more and page else None
 
-    return AlertPage(
-        items=[AlertSummary.model_validate(a) for a in page], next_cursor=next_cursor
-    )
+    return AlertPage(items=[AlertSummary.model_validate(a) for a in page], next_cursor=next_cursor)
 
 
 @router.get("/{alert_id}", response_model=AlertDetail)
@@ -125,9 +119,7 @@ async def acknowledge(
     principal: RequireOperator,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Alert:
-    alert = (
-        await db.execute(select(Alert).where(Alert.id == alert_id))
-    ).scalar_one_or_none()
+    alert = (await db.execute(select(Alert).where(Alert.id == alert_id))).scalar_one_or_none()
     if alert is None:
         raise HTTPException(404, f"alert {alert_id} not found")
     if alert.status == "raised":
@@ -155,9 +147,7 @@ async def adjudicate(
     Adjudications feed back into `make eval` as labels, so the measured
     precision improves the more the system is actually used (§15).
     """
-    alert = (
-        await db.execute(select(Alert).where(Alert.id == alert_id))
-    ).scalar_one_or_none()
+    alert = (await db.execute(select(Alert).where(Alert.id == alert_id))).scalar_one_or_none()
     if alert is None:
         raise HTTPException(404, f"alert {alert_id} not found")
 
@@ -172,9 +162,7 @@ async def adjudicate(
             detail={"verdict": payload.verdict, "note": payload.note},
         )
     )
-    logger.info(
-        "alert=%s adjudicated %s by=%s", alert_id, payload.verdict, principal.user_id
-    )
+    logger.info("alert=%s adjudicated %s by=%s", alert_id, payload.verdict, principal.user_id)
     return alert
 
 
@@ -200,9 +188,7 @@ async def evidence_url(
         )
     ).scalar_one_or_none()
     if item is None:
-        raise HTTPException(
-            404, f"evidence item {item_id} not found on alert {alert_id}"
-        )
+        raise HTTPException(404, f"evidence item {item_id} not found on alert {alert_id}")
 
     try:
         from datetime import timedelta

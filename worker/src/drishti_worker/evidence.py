@@ -76,9 +76,7 @@ def _decompose(x: float) -> tuple[str, int]:
     """
     text = repr(abs(x))
     if "e" in text or "E" in text:
-        mantissa, _, exp_text = (
-            text.partition("e") if "e" in text else text.partition("E")
-        )
+        mantissa, _, exp_text = text.partition("e") if "e" in text else text.partition("E")
         exp = int(exp_text)
     else:
         mantissa, exp = text, 0
@@ -206,9 +204,7 @@ def _serialise(value: Any) -> str:
         )
     if isinstance(value, Mapping):
         items = sorted(value.items(), key=lambda kv: _utf16_sort_key(str(kv[0])))
-        inner = ",".join(
-            f"{_serialise_string(str(k))}:{_serialise(v)}" for k, v in items
-        )
+        inner = ",".join(f"{_serialise_string(str(k))}:{_serialise(v)}" for k, v in items)
         return "{" + inner + "}"
     if isinstance(value, (list, tuple)) or (
         isinstance(value, Sequence) and not isinstance(value, (str, bytes))
@@ -334,9 +330,7 @@ class VerificationResult:
             "expected_hash": self.expected_hash,
             "computed_hash": self.computed_hash,
             "canonical_length": self.canonical_length,
-            "checks": [
-                {"name": n, "passed": p, "detail": d} for n, p, d in self.checks
-            ],
+            "checks": [{"name": n, "passed": p, "detail": d} for n, p, d in self.checks],
             "diff": list(self.diff),
         }
 

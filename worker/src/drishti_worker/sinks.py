@@ -148,9 +148,7 @@ class SpoolSink:
         return "spool"
 
     def pending_count(self) -> int:
-        return sum(
-            1 for p in self.dir.glob("alerts-*.jsonl") for _ in p.open(encoding="utf-8")
-        )
+        return sum(1 for p in self.dir.glob("alerts-*.jsonl") for _ in p.open(encoding="utf-8"))
 
 
 class PostgresSink:
@@ -240,9 +238,7 @@ class PostgresSink:
 class RedisSink:
     """Publishes to a capped Redis Stream for API WebSocket fan-out (§9)."""
 
-    def __init__(
-        self, url: str, stream: str = "drishti:alerts", maxlen: int = 10_000
-    ) -> None:
+    def __init__(self, url: str, stream: str = "drishti:alerts", maxlen: int = 10_000) -> None:
         self.url = url
         self.stream = stream
         self.maxlen = maxlen
@@ -306,9 +302,7 @@ class MinioSink:
             )
         return self._client
 
-    def put(
-        self, kind: str, object_key: str, data: bytes, content_type: str
-    ) -> dict[str, Any]:
+    def put(self, kind: str, object_key: str, data: bytes, content_type: str) -> dict[str, Any]:
         import io
         from hashlib import sha256
 
@@ -363,8 +357,7 @@ class FanoutSink:
                 results[sink.name] = False
                 # No silent failures. Full context, every time.
                 logger.exception(
-                    "sink=%s failed for alert=%s camera=%s kind=%s "
-                    "(failure #%d for this sink)",
+                    "sink=%s failed for alert=%s camera=%s kind=%s " "(failure #%d for this sink)",
                     sink.name,
                     alert.alert_id,
                     alert.camera_code,

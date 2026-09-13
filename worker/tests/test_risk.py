@@ -16,9 +16,7 @@ from drishti_worker.risk import (
 )
 from drishti_worker.types import RiskResult, Signal
 
-weights = st.floats(
-    min_value=-60, max_value=60, allow_nan=False, allow_infinity=False, width=32
-)
+weights = st.floats(min_value=-60, max_value=60, allow_nan=False, allow_infinity=False, width=32)
 codes = st.sampled_from(sorted(DEFAULT_WEIGHTS))
 signals = st.builds(Signal, code=codes, weight=weights, detail=st.just({}))
 
@@ -91,9 +89,7 @@ class TestModifiers:
         assert any(s.code == "DEGRADED_INPUT" for s in result.breakdown)
 
     def test_short_track_reduces_score(self):
-        result = score(
-            [Signal("ZONE_INTRUSION", 40.0, {})], RiskContext(track_age_frames=4)
-        )
+        result = score([Signal("ZONE_INTRUSION", 40.0, {})], RiskContext(track_age_frames=4))
         assert any(s.code == "SHORT_TRACK" for s in result.breakdown)
 
     def test_patrol_window_reduces_score(self):

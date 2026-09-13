@@ -118,9 +118,7 @@ def build_vehicle(path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--force", action="store_true", help="regenerate even if present"
-    )
+    parser.add_argument("--force", action="store_true", help="regenerate even if present")
     args = parser.parse_args()
 
     try:

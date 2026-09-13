@@ -252,10 +252,7 @@ class ZoneIntrusionRule:
         self.cfg, self.risk = cfg, risk
 
     def evaluate(self, track: Track, ctx: RuleContext) -> Signal | None:
-        if (
-            not self.cfg.zone_intrusion
-            or track.cls not in self.cfg.zone_intrusion_classes
-        ):
+        if not self.cfg.zone_intrusion or track.cls not in self.cfg.zone_intrusion_classes:
             return None
         foot = track.foot_point
         for zone in ctx.zones:
@@ -676,9 +673,7 @@ class RuleEngine:
         state.zones_last_frame = {
             z.zone_id
             for z in zones
-            if z.kind is ZoneKind.AREA
-            and z.enabled
-            and point_in_polygon(foot, z.polygon)
+            if z.kind is ZoneKind.AREA and z.enabled and point_in_polygon(foot, z.polygon)
         }
         state.last_foot_point = foot
 
@@ -730,9 +725,7 @@ class DebounceConfig:
             cooldown_s=float(block.get("cooldown_s", 45.0)),
             escalate_after_s=float(block.get("escalate_after_s", 120.0)),
             correlate_window_s=float(block.get("correlate_window_s", 8.0)),
-            max_alerts_per_camera_per_min=int(
-                block.get("max_alerts_per_camera_per_min", 6)
-            ),
+            max_alerts_per_camera_per_min=int(block.get("max_alerts_per_camera_per_min", 6)),
             escalation_margin=float(block.get("escalation_margin", 10.0)),
         )
 
@@ -758,9 +751,7 @@ class Debouncer:
         self._entries: dict[tuple[str, int, str | None, str], _DebounceEntry] = {}
         self._recent_by_camera: dict[str, deque[datetime]] = defaultdict(deque)
         # (alert_id, when, weight_of_that_alert's_primary_signal)
-        self._recent_alert_by_track: dict[
-            tuple[str, int], tuple[str, datetime, float]
-        ] = {}
+        self._recent_alert_by_track: dict[tuple[str, int], tuple[str, datetime, float]] = {}
 
     def submit(
         self,
@@ -787,9 +778,7 @@ class Debouncer:
         recent = self._recent_alert_by_track.get(corr_key)
         if recent is not None:
             prior_id, prior_ts, prior_weight = recent
-            within_window = (
-                now - prior_ts
-            ).total_seconds() <= self.cfg.correlate_window_s
+            within_window = (now - prior_ts).total_seconds() <= self.cfg.correlate_window_s
             # Correlation must never bury an ESCALATION. A person approaching a
             # fence (+18) and then crossing it (+45) is one situation, but the
             # crossing is the headline: merging it into the approach would show
@@ -823,8 +812,7 @@ class Debouncer:
                 entry.suppressed += 1
                 return AlertDecision(
                     Decision.SUPPRESS,
-                    f"within {self.cfg.cooldown_s}s cooldown "
-                    f"({since_emit:.1f}s since last)",
+                    f"within {self.cfg.cooldown_s}s cooldown " f"({since_emit:.1f}s since last)",
                     suppressed_count=entry.suppressed,
                 )
             if since_first >= self.cfg.escalate_after_s:

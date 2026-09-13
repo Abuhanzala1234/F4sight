@@ -54,9 +54,7 @@ def _pk() -> Mapped[str]:
 
 
 def _now() -> Mapped[datetime]:
-    return mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    return mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Site(Base):
@@ -68,9 +66,7 @@ class Site(Base):
     sector: Mapped[str | None] = mapped_column(String(64))
     lat: Mapped[float | None] = mapped_column(Float)
     lon: Mapped[float | None] = mapped_column(Float)
-    timezone: Mapped[str] = mapped_column(
-        String(64), default="Asia/Kolkata", nullable=False
-    )
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kolkata", nullable=False)
     created_at: Mapped[datetime] = _now()
 
     cameras: Mapped[list[Camera]] = relationship(back_populates="site")
@@ -84,9 +80,7 @@ class Camera(Base):
     )
 
     id: Mapped[str] = _pk()
-    site_id: Mapped[str] = mapped_column(
-        ForeignKey("site.id", ondelete="CASCADE"), index=True
-    )
+    site_id: Mapped[str] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), index=True)
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     # Encrypted at rest (§12). The API never returns this field.
@@ -97,9 +91,7 @@ class Camera(Base):
     native_fps: Mapped[float] = mapped_column(Float, default=25.0)
     analytics_fps: Mapped[float] = mapped_column(Float, default=6.0)
     # P8's escape hatch: MediaMTX still records it, the worker ignores it.
-    is_recording_only: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    is_recording_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     profile: Mapped[str] = mapped_column(String(16), default="laptop")
     lens: Mapped[str] = mapped_column(String(16), default="fixed")
     calibration: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
@@ -147,12 +139,8 @@ class Track(Base):
     camera_id: Mapped[str] = mapped_column(ForeignKey("camera.id", ondelete="CASCADE"))
     track_id: Mapped[int] = mapped_column(Integer, nullable=False)
     cls: Mapped[str] = mapped_column(String(32), nullable=False)
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     frame_count: Mapped[int] = mapped_column(Integer, default=0)
     max_conf: Mapped[float] = mapped_column(Float, default=0.0)
     path: Mapped[list[Any] | None] = mapped_column(JSONB)
@@ -168,12 +156,8 @@ class Event(Base):
 
     id: Mapped[str] = _pk()
     camera_id: Mapped[str] = mapped_column(ForeignKey("camera.id", ondelete="CASCADE"))
-    track_id: Mapped[str | None] = mapped_column(
-        ForeignKey("track.id", ondelete="SET NULL")
-    )
-    zone_id: Mapped[str | None] = mapped_column(
-        ForeignKey("zone.id", ondelete="SET NULL")
-    )
+    track_id: Mapped[str | None] = mapped_column(ForeignKey("track.id", ondelete="SET NULL"))
+    zone_id: Mapped[str | None] = mapped_column(ForeignKey("zone.id", ondelete="SET NULL"))
     kind: Mapped[str] = mapped_column(String(48), nullable=False)
     ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
@@ -184,14 +168,10 @@ class Alert(Base):
 
     __tablename__ = "alert"
     __table_args__ = (
-        CheckConstraint(
-            "risk_score >= 0 AND risk_score <= 100", name="ck_alert_risk_range"
-        ),
+        CheckConstraint("risk_score >= 0 AND risk_score <= 100", name="ck_alert_risk_range"),
         # P2: an alert that cannot be explained must not exist. An empty
         # breakdown is an unexplainable alert, so the database refuses it.
-        CheckConstraint(
-            "jsonb_array_length(risk_breakdown) > 0", name="ck_alert_has_breakdown"
-        ),
+        CheckConstraint("jsonb_array_length(risk_breakdown) > 0", name="ck_alert_has_breakdown"),
         CheckConstraint(
             "severity IN ('info','low','medium','high','critical')",
             name="ck_alert_severity",
@@ -221,14 +201,10 @@ class Alert(Base):
     )
 
     id: Mapped[str] = _pk()
-    site_id: Mapped[str] = mapped_column(
-        ForeignKey("site.id", ondelete="CASCADE"), index=True
-    )
+    site_id: Mapped[str] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), index=True)
     camera_id: Mapped[str] = mapped_column(ForeignKey("camera.id", ondelete="CASCADE"))
     track_id: Mapped[int | None] = mapped_column(Integer)
-    zone_id: Mapped[str | None] = mapped_column(
-        ForeignKey("zone.id", ondelete="SET NULL")
-    )
+    zone_id: Mapped[str | None] = mapped_column(ForeignKey("zone.id", ondelete="SET NULL"))
     primary_event_id: Mapped[str | None] = mapped_column(
         ForeignKey("event.id", ondelete="SET NULL")
     )
@@ -248,9 +224,7 @@ class Alert(Base):
     # The exact object that was hashed, so verification is a pure function of
     # one row (§6.2).
     evidence_doc: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    ledger_status: Mapped[str] = mapped_column(
-        String(16), default="pending", nullable=False
-    )
+    ledger_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     created_at: Mapped[datetime] = _now()
 
     items: Mapped[list[EvidenceItem]] = relationship(
@@ -261,9 +235,7 @@ class Alert(Base):
 class EvidenceItem(Base):
     __tablename__ = "evidence_item"
     __table_args__ = (
-        CheckConstraint(
-            "kind IN ('snapshot','clip','crop','plate_crop')", name="ck_evidence_kind"
-        ),
+        CheckConstraint("kind IN ('snapshot','clip','crop','plate_crop')", name="ck_evidence_kind"),
         # P4, enforced by the database. Evidence is for the court; enhancement
         # is for the model. A snapshot marked enhanced cannot be inserted.
         CheckConstraint(
@@ -316,9 +288,7 @@ class LedgerAnchorEntry(Base):
     )
 
     id: Mapped[str] = _pk()
-    batch_id: Mapped[str] = mapped_column(
-        ForeignKey("ledger_anchor_batch.id", ondelete="CASCADE")
-    )
+    batch_id: Mapped[str] = mapped_column(ForeignKey("ledger_anchor_batch.id", ondelete="CASCADE"))
     alert_id: Mapped[str] = mapped_column(ForeignKey("alert.id", ondelete="CASCADE"))
     leaf_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     leaf_index: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -355,9 +325,7 @@ class WatchlistPerson(Base):
     ref_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(128))
     category: Mapped[str] = mapped_column(String(32), default="person_of_interest")
-    added_by: Mapped[str | None] = mapped_column(
-        ForeignKey("app_user.id", ondelete="SET NULL")
-    )
+    added_by: Mapped[str | None] = mapped_column(ForeignKey("app_user.id", ondelete="SET NULL"))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
@@ -372,18 +340,14 @@ class WatchlistVehicle(Base):
     """
 
     __tablename__ = "watchlist_vehicle"
-    __table_args__ = (
-        CheckConstraint("char_length(plate_hmac) = 64", name="ck_plate_hmac_len"),
-    )
+    __table_args__ = (CheckConstraint("char_length(plate_hmac) = 64", name="ck_plate_hmac_len"),)
 
     id: Mapped[str] = _pk()
     plate_hmac: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     plate_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
     region: Mapped[str] = mapped_column(String(8), default="IN")
     category: Mapped[str] = mapped_column(String(32), default="watch")
-    added_by: Mapped[str | None] = mapped_column(
-        ForeignKey("app_user.id", ondelete="SET NULL")
-    )
+    added_by: Mapped[str | None] = mapped_column(ForeignKey("app_user.id", ondelete="SET NULL"))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = _now()
@@ -396,9 +360,7 @@ class AuditLog(Base):
     __table_args__ = (Index("ix_audit_time", text("ts_utc DESC")),)
 
     id: Mapped[str] = _pk()
-    actor_id: Mapped[str | None] = mapped_column(
-        ForeignKey("app_user.id", ondelete="SET NULL")
-    )
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("app_user.id", ondelete="SET NULL"))
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     target_type: Mapped[str | None] = mapped_column(String(32))
     target_id: Mapped[str | None] = mapped_column(String(64))
@@ -409,9 +371,7 @@ class AuditLog(Base):
 
 class StreamHealth(Base):
     __tablename__ = "stream_health"
-    __table_args__ = (
-        Index("ix_stream_health_camera_time", "camera_id", text("ts_utc DESC")),
-    )
+    __table_args__ = (Index("ix_stream_health_camera_time", "camera_id", text("ts_utc DESC")),)
 
     id: Mapped[str] = _pk()
     camera_id: Mapped[str] = mapped_column(ForeignKey("camera.id", ondelete="CASCADE"))

@@ -71,9 +71,7 @@ class TestVersioning:
 
     def test_changes_when_a_threshold_changes(self):
         base = {"rules": {"loiter": {"seconds": 30}}}
-        assert config_version(base) != config_version(
-            {"rules": {"loiter": {"seconds": 31}}}
-        )
+        assert config_version(base) != config_version({"rules": {"loiter": {"seconds": 31}}})
 
     def test_is_a_sha256_hex_digest(self):
         version = config_version({"a": 1})
@@ -135,9 +133,7 @@ class TestPrivacyInvariants:
                 "config",
                 profile="laptop",
                 environ={},
-                overrides={
-                    "faces": {"enabled": True, "retain_non_matching_embeddings": True}
-                },
+                overrides={"faces": {"enabled": True, "retain_non_matching_embeddings": True}},
             )
 
     def test_plate_plaintext_storage_is_refused(self):

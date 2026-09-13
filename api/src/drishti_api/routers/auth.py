@@ -50,11 +50,7 @@ async def login(
 
     # Identical response for "no such user" and "wrong password": distinguishing
     # them hands an attacker a list of valid usernames.
-    if (
-        user is None
-        or not user.active
-        or not verify_password(payload.password, user.password_hash)
-    ):
+    if user is None or not user.active or not verify_password(payload.password, user.password_hash):
         logger.warning("failed login for username=%r from ip=%s", payload.username, ip)
         db.add(
             AuditLog(
@@ -106,9 +102,7 @@ async def refresh_token(
     if payload.get("typ") != "refresh":
         raise HTTPException(401, "an access token cannot be exchanged for a new one")
 
-    user = (
-        await db.execute(select(User).where(User.id == payload["sub"]))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.id == payload["sub"]))).scalar_one_or_none()
     if user is None or not user.active:
         raise HTTPException(401, "user no longer active")
 
@@ -128,9 +122,7 @@ async def me(
     principal: Annotated[Principal, Depends(current_principal)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    user = (
-        await db.execute(select(User).where(User.id == principal.user_id))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.id == principal.user_id))).scalar_one_or_none()
     if user is None:
         raise HTTPException(404, "user not found")
     return user

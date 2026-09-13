@@ -83,9 +83,7 @@ class TestIntrusionEndToEnd:
         approach-then-cross interaction has its own test below.
         """
         recorder = Recorder()
-        worker = build_worker(
-            camera, [tripwire_zone], recorder, perimeter_approach=False
-        )
+        worker = build_worker(camera, [tripwire_zone], recorder, perimeter_approach=False)
 
         # Walk from x=400 to x=800 across a wire at x=600, over 40 frames.
         for i in range(40):
@@ -95,9 +93,7 @@ class TestIntrusionEndToEnd:
         alert = recorder.alerts[0]
         assert max(alert["signals"], key=lambda s: s.weight).code == "TRIPWIRE_CROSS"
 
-    def test_crossing_is_not_buried_by_the_earlier_approach_alert(
-        self, camera, tripwire_zone
-    ):
+    def test_crossing_is_not_buried_by_the_earlier_approach_alert(self, camera, tripwire_zone):
         """Correlation must never hide an escalation.
 
         The same person triggers PERIMETER_APPROACH (+18) and then, a second
@@ -110,15 +106,12 @@ class TestIntrusionEndToEnd:
         for i in range(40):
             worker._process(bundle(camera, i, [person_at(400 + i * 10)]))
 
-        kinds = [
-            max(a["signals"], key=lambda s: s.weight).code for a in recorder.alerts
-        ]
+        kinds = [max(a["signals"], key=lambda s: s.weight).code for a in recorder.alerts]
         assert "PERIMETER_APPROACH" in kinds
         assert "TRIPWIRE_CROSS" in kinds
         # The crossing must be scored higher than the approach that preceded it.
         by_kind = {
-            max(a["signals"], key=lambda s: s.weight).code: a["risk"].score
-            for a in recorder.alerts
+            max(a["signals"], key=lambda s: s.weight).code: a["risk"].score for a in recorder.alerts
         }
         assert by_kind["TRIPWIRE_CROSS"] > by_kind["PERIMETER_APPROACH"]
 
@@ -153,9 +146,7 @@ class TestIntrusionEndToEnd:
             worker._process(bundle(camera, i, detections))
         assert recorder.alerts == []
 
-    def test_a_stationary_occluded_person_is_not_treated_as_flicker(
-        self, camera, area_zone
-    ):
+    def test_a_stationary_occluded_person_is_not_treated_as_flicker(self, camera, area_zone):
         """The other side of the same coin: intermittent detections at one spot
         keep their track id and DO raise, which is what saves an intrusion
         behind a fence post."""
@@ -169,9 +160,7 @@ class TestIntrusionEndToEnd:
     def test_risk_breakdown_sums_to_score(self, camera, tripwire_zone):
         """P2, checked on a real alert that came through the whole pipeline."""
         recorder = Recorder()
-        worker = build_worker(
-            camera, [tripwire_zone], recorder, perimeter_approach=False
-        )
+        worker = build_worker(camera, [tripwire_zone], recorder, perimeter_approach=False)
         for i in range(40):
             worker._process(bundle(camera, i, [person_at(400 + i * 10)]))
 
@@ -182,13 +171,9 @@ class TestIntrusionEndToEnd:
 
     def test_night_profile_adds_a_reason_code(self, camera, tripwire_zone):
         recorder = Recorder()
-        worker = build_worker(
-            camera, [tripwire_zone], recorder, perimeter_approach=False
-        )
+        worker = build_worker(camera, [tripwire_zone], recorder, perimeter_approach=False)
         for i in range(40):
-            worker._process(
-                bundle(camera, i, [person_at(400 + i * 10)], profile="night")
-            )
+            worker._process(bundle(camera, i, [person_at(400 + i * 10)], profile="night"))
 
         codes = recorder.alerts[0]["risk"].reason_codes()
         assert "NIGHT_MOVEMENT" in codes
@@ -204,12 +189,8 @@ class TestIntrusionEndToEnd:
                     camera,
                     i,
                     [
-                        Detection(
-                            "person", 0.9, (150.0 + i, 200.0, 190.0 + i, 400.0), 0
-                        ),
-                        Detection(
-                            "person", 0.9, (420.0 - i, 200.0, 460.0 - i, 400.0), 0
-                        ),
+                        Detection("person", 0.9, (150.0 + i, 200.0, 190.0 + i, 400.0), 0),
+                        Detection("person", 0.9, (420.0 - i, 200.0, 460.0 - i, 400.0), 0),
                     ],
                 )
             )
@@ -232,9 +213,7 @@ class TestIntrusionEndToEnd:
 
     def test_stats_are_updated(self, camera, tripwire_zone):
         recorder = Recorder()
-        worker = build_worker(
-            camera, [tripwire_zone], recorder, perimeter_approach=False
-        )
+        worker = build_worker(camera, [tripwire_zone], recorder, perimeter_approach=False)
         for i in range(40):
             worker._process(bundle(camera, i, [person_at(400 + i * 10)]))
         assert worker.stats.alerts_emitted == 1

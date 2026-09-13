@@ -68,9 +68,7 @@ class OnnxPlateReader:
 
     # -- internals ---------------------------------------------------------
 
-    def _localise(
-        self, crop: Any
-    ) -> tuple[tuple[float, float, float, float], Any] | None:
+    def _localise(self, crop: Any) -> tuple[tuple[float, float, float, float], Any] | None:
         import numpy as np
 
         if self._det is None:
@@ -133,9 +131,7 @@ class OnnxPlateReader:
         gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
         gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
         config = f"--psm 7 -c tessedit_char_whitelist={PLATE_CHARSET}"
-        data = pytesseract.image_to_data(
-            gray, config=config, output_type=pytesseract.Output.DICT
-        )
+        data = pytesseract.image_to_data(gray, config=config, output_type=pytesseract.Output.DICT)
         words = [w for w in data["text"] if w.strip()]
         confs = [float(c) / 100.0 for c in data["conf"] if float(c) >= 0]
         if not words:

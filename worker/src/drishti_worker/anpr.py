@@ -212,9 +212,7 @@ def plate_hmac(text: str, key: bytes) -> str:
     in ``config/`` and never in git.
     """
     if not key:
-        raise ValueError(
-            "plate HMAC key is empty; refusing to produce a guessable digest"
-        )
+        raise ValueError("plate HMAC key is empty; refusing to produce a guessable digest")
     if len(key) < 16:
         raise ValueError(f"plate HMAC key is {len(key)} bytes; need at least 16")
     _, normalised = validate_indian_plate(text)
@@ -320,9 +318,7 @@ class PlateVoter:
         self._settled = None
 
 
-def to_storage_record(
-    read: PlateRead, key: bytes, *, fired_alert: bool
-) -> dict[str, Any]:
+def to_storage_record(read: PlateRead, key: bytes, *, fired_alert: bool) -> dict[str, Any]:
     """Build the DB record for a plate read.
 
     ``fired_alert`` is the only thing that permits plaintext into the payload,
