@@ -230,6 +230,20 @@ class Track:
         (x0, y0), (x1, y1) = self.history[0], self.history[-1]
         return math.hypot(x1 - x0, y1 - y0)
 
+    def speed_px_s(self, analytics_fps: float) -> float:
+        """Instantaneous speed from the last two foot-points (real, measured).
+
+        ``history`` gets one foot-point appended per tracker update, so
+        consecutive entries are ``1 / analytics_fps`` seconds apart -- there is
+        no per-point timestamp to divide by, only the camera's sampling rate.
+        This feeds the dashboard's live overlay (§9); it is a genuine value
+        computed from real tracked motion, not a display placeholder.
+        """
+        if len(self.history) < 2 or analytics_fps <= 0:
+            return 0.0
+        (x0, y0), (x1, y1) = self.history[-2], self.history[-1]
+        return math.hypot(x1 - x0, y1 - y0) * analytics_fps
+
 
 # --------------------------------------------------------------------------
 # Signals, risk, alerts

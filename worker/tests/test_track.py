@@ -110,6 +110,24 @@ class TestLifecycle:
         assert fx == pytest.approx(150.0, abs=1.0)
         assert fy == pytest.approx(400.0, abs=1.0)
 
+    def test_speed_px_s_from_real_motion(self):
+        """Feeds the dashboard's live overlay -- must be a real measurement,
+        not a placeholder: 10px of foot-point motion per 1/6s frame (the same
+        step size test_stable_id_across_frames uses, small enough that IoU
+        association actually holds the identity together) is exactly 60 px/s
+        at fps=6, independent of what units the display later scales it into.
+        """
+        tracker = ByteTracker()
+        tracks = []
+        for i in range(5):
+            tracks = tracker.update([person(100 + i * 10)], at(i))
+        assert tracks[0].speed_px_s(analytics_fps=6.0) == pytest.approx(60.0, rel=0.02)
+
+    def test_speed_px_s_is_zero_with_only_one_point(self):
+        tracker = ByteTracker()
+        tracks = tracker.update([person(100)], at(0))
+        assert tracks[0].speed_px_s(analytics_fps=6.0) == 0.0
+
 
 class TestPurity:
     def test_update_never_reads_the_clock(self):

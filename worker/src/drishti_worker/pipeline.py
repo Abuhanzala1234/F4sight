@@ -150,6 +150,7 @@ class CameraWorker:
         frame_queue: _DropOldestQueue,
         on_alert: Any,
         on_state: Any = None,
+        on_tracks: Any = None,
         clip_pre_roll_s: float = 5.0,
         anpr_cfg: AnprConfig | None = None,
         anpr_reader: Any = None,
@@ -167,6 +168,7 @@ class CameraWorker:
         self._frame_queue = frame_queue
         self._det_queue: queue.Queue[DetBundle] = queue.Queue(maxsize=16)
         self._on_alert = on_alert
+        self._on_tracks = on_tracks
         self._stop = threading.Event()
         self._stage_thread: threading.Thread | None = None
         self.stats = PipelineStats()
@@ -276,6 +278,27 @@ class CameraWorker:
             self._plate_hits.pop(closed.track_id, None)
 
         plate_hit = self._read_plates(tracks, frame)
+
+        # Live overlay feed: every processed frame, not just ones that raise a
+        # signal, and BEFORE the no-signals early-return below -- an operator
+        # watching the wall should see every real track the model is actually
+        # following, not just the ones that happened to cross a rule.
+        if self._on_tracks is not None:
+            confirmed = [t for t in tracks if t.is_confirmed]
+            if confirmed:
+                self._on_tracks(
+                    self.camera.camera_id,
+                    frame.ts_utc,
+                    [
+                        {
+                            "track_id": t.track_id,
+                            "cls": t.cls,
+                            "box": [round(v, 1) for v in t.box],
+                            "speed_px_s": round(t.speed_px_s(self.camera.analytics_fps), 1),
+                        }
+                        for t in confirmed
+                    ],
+                )
 
         signals_by_track = self.rules.evaluate(
             tracks,

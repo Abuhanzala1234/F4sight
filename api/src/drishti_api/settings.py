@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # --- cache / bus ---
     redis_url: str = "redis://localhost:6379/0"
     alert_stream: str = "drishti:alerts"
+    live_track_stream: str = "drishti:live"
 
     # --- media ---
     mediamtx_host: str = "localhost"

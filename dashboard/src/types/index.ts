@@ -166,3 +166,20 @@ export type ServerMsg =
   | { type: 'stream_health'; camera_id: string; state: StreamState; fps: number }
   | { type: 'evqm'; camera_id: string; profile: string }
   | { type: 'heartbeat'; ts: string };
+
+/** One real tracked object, as published live by the worker (pipeline.py's
+ * `_on_tracks` hook) -- box is in the camera's ORIGINAL pixel coordinates. */
+export interface LiveTrack {
+  track_id: number;
+  cls: string;
+  box: [number, number, number, number];
+  speed_px_s: number;
+}
+
+/** `/ws/live/{camera_id}` message: one frame's worth of real tracks. */
+export interface LiveTrackFrame {
+  type: 'tracks';
+  camera_id: string;
+  ts: string;
+  tracks: LiveTrack[];
+}

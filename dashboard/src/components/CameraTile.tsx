@@ -86,7 +86,7 @@ export function CameraTile({ camera, onSelect }: { camera: Camera; onSelect?: ()
         className="h-full w-full bg-void object-cover opacity-90 transition-opacity group-hover:opacity-100"
       />
 
-      <DetectionOverlay active={state === 'live'} seed={camera.id} />
+      <DetectionOverlay active={state === 'live'} camera={camera} />
 
       {state !== 'live' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-void/85">

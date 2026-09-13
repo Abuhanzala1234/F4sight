@@ -28,6 +28,7 @@ __all__ = [
     "AlertRecord",
     "AlertSink",
     "FanoutSink",
+    "LiveTrackPublisher",
     "MinioSink",
     "NullSink",
     "PostgresSink",
@@ -262,6 +263,53 @@ class RedisSink:
     @property
     def name(self) -> str:
         return "redis"
+
+
+class LiveTrackPublisher:
+    """Publishes per-frame track snapshots for the dashboard's live overlay.
+
+    Deliberately NOT an ``AlertSink`` and nothing like one: this is a
+    best-effort, high-frequency, ephemeral feed for drawing real boxes over
+    the live camera wall, not an evidentiary record. Losing one of these
+    messages is invisible to an operator (the next frame arrives in well
+    under a second); losing an alert is not, which is why RedisSink above has
+    a completely separate, durable path. A short ``maxlen`` on purpose --
+    nothing older than a few seconds is ever useful here, unlike the alert
+    stream's history replay.
+    """
+
+    def __init__(self, url: str, stream: str = "drishti:live", maxlen: int = 500) -> None:
+        self.url = url
+        self.stream = stream
+        self.maxlen = maxlen
+        self._client: Any = None
+
+    def _redis(self) -> Any:
+        if self._client is None:
+            import redis
+
+            self._client = redis.Redis.from_url(self.url, decode_responses=True)
+        return self._client
+
+    def publish(self, camera_id: str, ts_utc: datetime, tracks: list[dict[str, Any]]) -> None:
+        payload = {"camera_id": camera_id, "ts": ts_utc.isoformat(), "tracks": tracks}
+        try:
+            self._redis().xadd(
+                self.stream,
+                {"payload": json.dumps(payload, separators=(",", ":"))},
+                maxlen=self.maxlen,
+                approximate=True,
+            )
+        except Exception:
+            # Fail-soft and quiet on purpose (unlike every AlertSink): this is
+            # a cosmetic real-time feed, not evidence, and it fires many times
+            # a second per camera -- logging every Redis hiccup at normal
+            # levels here would drown out messages that actually matter.
+            logger.debug("live track publish failed (non-fatal)", exc_info=True)
+
+    @property
+    def name(self) -> str:
+        return "live-tracks"
 
 
 class MinioSink:

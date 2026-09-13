@@ -7,7 +7,7 @@
  * for the REST feed, never the only way to learn something happened.
  */
 
-import type { ServerMsg } from '@/types';
+import type { LiveTrackFrame, ServerMsg } from '@/types';
 
 type Handler = (msg: ServerMsg) => void;
 type StatusHandler = (connected: boolean) => void;
@@ -70,6 +70,70 @@ export class AlertSocket {
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify(payload));
     }
+  }
+
+  close(): void {
+    this.closedByUs = true;
+    if (this.timer !== null) window.clearTimeout(this.timer);
+    this.socket?.close();
+  }
+}
+
+/**
+ * Live per-camera track overlay socket. Real tracker output, not alerts --
+ * see DetectionOverlay.tsx for what this feeds and its honest limitations
+ * (chiefly: HLS video lags the live feed by a few seconds, so the boxes will
+ * visibly run ahead of the picture; there is no per-camera replay on
+ * reconnect, since a missed frame is simply gone a second later).
+ */
+export class LiveTrackSocket {
+  private socket: WebSocket | null = null;
+  private attempt = 0;
+  private closedByUs = false;
+  private timer: number | null = null;
+
+  constructor(
+    private readonly cameraId: string,
+    private readonly token: string,
+    private readonly onFrame: (frame: LiveTrackFrame) => void,
+  ) {}
+
+  connect(): void {
+    this.closedByUs = false;
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${scheme}://${window.location.host}/ws/live/${encodeURIComponent(this.cameraId)}?token=${encodeURIComponent(this.token)}`;
+
+    try {
+      this.socket = new WebSocket(url);
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+
+    this.socket.onopen = () => {
+      this.attempt = 0;
+    };
+
+    this.socket.onmessage = (event: MessageEvent<string>) => {
+      try {
+        const msg = JSON.parse(event.data) as LiveTrackFrame;
+        if (msg.type === 'tracks') this.onFrame(msg);
+      } catch {
+        // A malformed frame is not worth tearing the socket down for.
+      }
+    };
+
+    this.socket.onclose = () => {
+      if (!this.closedByUs) this.scheduleReconnect();
+    };
+
+    this.socket.onerror = () => this.socket?.close();
+  }
+
+  private scheduleReconnect(): void {
+    const delay = BACKOFF_MS[Math.min(this.attempt, BACKOFF_MS.length - 1)] ?? 30000;
+    this.attempt += 1;
+    this.timer = window.setTimeout(() => this.connect(), delay);
   }
 
   close(): void {

@@ -36,7 +36,15 @@ from .logsetup import configure_logging
 from .pipeline import CameraWorker, Pipeline
 from .risk import RiskConfig
 from .rules import DebounceConfig, RuleConfig
-from .sinks import FanoutSink, MinioSink, NullSink, PostgresSink, RedisSink, SpoolSink
+from .sinks import (
+    FanoutSink,
+    LiveTrackPublisher,
+    MinioSink,
+    NullSink,
+    PostgresSink,
+    RedisSink,
+    SpoolSink,
+)
 from .track import TrackerConfig
 from .types import Calibration, CameraRuntime, ZoneKind, ZoneRuntime
 from .watchlist import WatchlistCache
@@ -354,6 +362,8 @@ def main(argv: list[str] | None = None) -> int:
         record = assembler.build(**kwargs)
         assembler.emit(record)
 
+    live_tracks = LiveTrackPublisher(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+
     pipeline = Pipeline(
         detector,
         detector_cfg,
@@ -387,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
                 debounce_cfg=DebounceConfig.from_mapping(cfg.as_dict()),
                 frame_queue=pipeline.frame_queue,
                 on_alert=on_alert,
+                on_tracks=live_tracks.publish,
                 clip_pre_roll_s=float(cfg.get("evidence.clip_pre_roll_s", 5.0)),
                 anpr_cfg=anpr_cfg,
                 anpr_reader=anpr_reader,

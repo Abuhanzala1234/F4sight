@@ -139,6 +139,114 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+class LiveTrackManager:
+    """Same one-reader-many-clients shape as ConnectionManager above, but for
+    the live-overlay track stream instead of alerts.
+
+    Kept as a separate class rather than folded into ConnectionManager: the
+    two streams have different durability expectations (alerts must never be
+    lost; a missed track frame is invisible a moment later) and different
+    fan-out shape (alerts go to every subscriber that wants them; a track
+    frame is only useful to clients watching that specific camera_id).
+    """
+
+    def __init__(self) -> None:
+        self._subs: dict[WebSocket, str] = {}  # socket -> camera_id
+        self._reader: asyncio.Task[None] | None = None
+        self._lock = asyncio.Lock()
+
+    async def connect(self, socket: WebSocket, camera_id: str) -> None:
+        async with self._lock:
+            self._subs[socket] = camera_id
+            if self._reader is None or self._reader.done():
+                self._reader = asyncio.create_task(self._pump(), name="ws-live-pump")
+
+    async def disconnect(self, socket: WebSocket) -> None:
+        async with self._lock:
+            self._subs.pop(socket, None)
+
+    async def _pump(self) -> None:
+        settings = get_settings()
+        try:
+            import redis.asyncio as aioredis
+        except ImportError:
+            logger.error("redis package missing; live track overlay is disabled")
+            return
+
+        client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        last_id = "$"
+        logger.info("live-track pump tailing %s", settings.live_track_stream)
+
+        while self._subs:
+            try:
+                entries: list[tuple[str, list[tuple[str, dict[str, str]]]]] = (
+                    await client.xread(  # type: ignore[assignment]
+                        {settings.live_track_stream: last_id}, count=64, block=2000
+                    )
+                )
+            except Exception:
+                logger.exception("redis xread failed for live tracks; retrying in 5s")
+                await asyncio.sleep(5)
+                continue
+
+            for _stream, messages in entries or []:
+                for message_id, fields in messages:
+                    last_id = message_id
+                    try:
+                        frame = json.loads(fields["payload"])
+                    except (KeyError, json.JSONDecodeError):
+                        continue
+                    camera_id = frame.get("camera_id")
+                    dead: list[WebSocket] = []
+                    for socket, wanted_id in list(self._subs.items()):
+                        if wanted_id != camera_id:
+                            continue
+                        try:
+                            await socket.send_json({"type": "tracks", **frame})
+                        except Exception:
+                            dead.append(socket)
+                    for socket in dead:
+                        await self.disconnect(socket)
+
+        with contextlib.suppress(Exception):
+            await client.aclose()
+        logger.info("live-track pump stopped (no subscribers)")
+
+
+live_manager = LiveTrackManager()
+
+
+@router.websocket("/ws/live/{camera_id}")
+async def live_tracks_socket(socket: WebSocket, camera_id: str, token: str = Query(...)) -> None:
+    """Live per-frame track overlay for one camera (dashboard HUD, cosmetic).
+
+    Same token-as-query-param reasoning as ``/ws/alerts``. Unlike alerts,
+    there is nothing to replay on reconnect -- a missed frame here is simply
+    gone, and the next one is a second away.
+    """
+    settings = get_settings()
+    try:
+        payload = decode_token(token, settings)
+    except Exception:
+        await socket.close(code=4401, reason="invalid token")
+        return
+    if payload.get("role") not in ROLE_ORDER:
+        await socket.close(code=4403, reason="insufficient role")
+        return
+
+    await socket.accept()
+    await live_manager.connect(socket, camera_id)
+    try:
+        while True:
+            await socket.receive_text()  # client sends nothing meaningful; just detect disconnect
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("live-track websocket error for camera=%s", camera_id)
+    finally:
+        await live_manager.disconnect(socket)
+
+
 @router.websocket("/ws/alerts")
 async def alerts_socket(socket: WebSocket, token: str = Query(...)) -> None:
     """Live alert feed.

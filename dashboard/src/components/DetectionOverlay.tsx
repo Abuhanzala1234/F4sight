@@ -1,71 +1,54 @@
 import { useEffect, useRef } from 'react';
+import type { Camera, LiveTrack } from '@/types';
+import { loadSession } from '@/lib/api';
+import { LiveTrackSocket } from '@/lib/ws';
 
 /**
- * Purely decorative HUD overlay for the live wall (aesthetic only — this
- * component does not read real detections; the pipeline's actual per-frame
- * output is not streamed to the browser today, only finished alerts are
- * (api/src/drishti_api/routers/ws.py). This exists so the camera wall LOOKS
- * like an analytics console is watching it, for demo purposes. It draws
- * fabricated tracks with class-coloured corner-bracket boxes and a fake
- * speed readout, seeded per camera so each tile looks distinct and stable
- * rather than randomly reshuffling every render.
+ * Real detection overlay for the live wall -- draws the ACTUAL tracker
+ * output from worker/src/drishti_worker/pipeline.py's per-frame `_on_tracks`
+ * publish (see api/routers/ws.py's `/ws/live/{camera_id}`), not a simulation.
+ * Boxes are class-coloured (person = ice/blue, vehicle = signal/amber, same
+ * palette as the rest of the app) with a real track id and a speed reading
+ * computed from the object's own measured motion (Track.speed_px_s).
+ *
+ * Honest limitation, worth knowing before demoing this: the video arrives as
+ * HLS, which buffers a few seconds behind the actual camera (that is normal
+ * for HLS, not a bug here) while this overlay's WebSocket is near-instant.
+ * So the boxes will visibly run a little AHEAD of the picture rather than
+ * being frame-locked to it. Fixing that fully would mean moving the live
+ * wall to MediaMTX's WebRTC output (sub-second latency, already enabled in
+ * infra/mediamtx.yml) instead of HLS -- a bigger change than this overlay,
+ * left as a follow-up rather than done silently here.
  */
 
-type SimClass = 'person' | 'vehicle';
-
-interface SimTrack {
-  id: number;
-  cls: SimClass;
-  x: number; // center, 0..1 of canvas width
-  y: number; // center, 0..1 of canvas height
-  w: number; // 0..1 of canvas width
-  h: number; // 0..1 of canvas height
-  vx: number; // units/sec, 0..1 space
-  vy: number;
-  bornAt: number;
-  lifeMs: number;
-  fadeMs: number;
-}
-
-const CLASS_COLOR: Record<SimClass, string> = {
+const CLASS_COLOR: Record<string, string> = {
   person: '#4FC3F7', // ice
   vehicle: '#FFB020', // signal
+  animal: '#35E07F', // phosphor
+  bag: '#FF8A3D', // ember
 };
 
-function mulberry32(seed: number) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+function colorFor(cls: string): string {
+  return CLASS_COLOR[cls] ?? '#C9D1D9';
 }
 
-function spawnTrack(rand: () => number, now: number, idSeed: number): SimTrack {
-  const cls: SimClass = rand() > 0.62 ? 'vehicle' : 'person';
-  const w = cls === 'vehicle' ? 0.1 + rand() * 0.08 : 0.045 + rand() * 0.03;
-  const h = cls === 'vehicle' ? w * 0.55 : w * 2.4;
-  const speed = 0.01 + rand() * 0.035;
-  const angle = rand() * Math.PI * 2;
-  return {
-    id: 100 + Math.floor(idSeed * 900 + rand() * 99),
-    cls,
-    x: 0.12 + rand() * 0.76,
-    y: 0.18 + rand() * 0.64,
-    w,
-    h,
-    vx: Math.cos(angle) * speed,
-    vy: Math.sin(angle) * speed * 0.6,
-    bornAt: now,
-    lifeMs: 6000 + rand() * 9000,
-    fadeMs: 500,
-  };
-}
-
-export function DetectionOverlay({ active, seed }: { active: boolean; seed: string }) {
+export function DetectionOverlay({ active, camera }: { active: boolean; camera: Camera }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const tracksRef = useRef<LiveTrack[]>([]);
+  const lastFrameAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const session = loadSession();
+    if (!session) return undefined;
+
+    const socket = new LiveTrackSocket(camera.id, session.access_token, (frame) => {
+      tracksRef.current = frame.tracks;
+      lastFrameAtRef.current = performance.now();
+    });
+    socket.connect();
+    return () => socket.close();
+  }, [active, camera.id]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -73,15 +56,6 @@ export function DetectionOverlay({ active, seed }: { active: boolean; seed: stri
     if (!canvas) return undefined;
     const ctx = canvas.getContext('2d');
     if (!ctx) return undefined;
-
-    let hashSeed = 0;
-    for (let i = 0; i < seed.length; i += 1) hashSeed = (hashSeed * 31 + seed.charCodeAt(i)) | 0;
-    const rand = mulberry32(hashSeed || 1);
-
-    const now0 = performance.now();
-    const tracks: SimTrack[] = Array.from({ length: 2 + Math.floor(rand() * 2) }, (_, i) =>
-      spawnTrack(rand, now0 - rand() * 3000, i + 1),
-    );
 
     let raf = 0;
     let ro: ResizeObserver | null = null;
@@ -115,63 +89,57 @@ export function DetectionOverlay({ active, seed }: { active: boolean; seed: stri
         ctx!.lineTo(cx + arm * dx, cy);
         ctx!.stroke();
       }
-      // faint full outline so the box still reads at a glance, not just corners
       ctx!.globalAlpha = 0.22;
       ctx!.strokeRect(x, y, w, h);
       ctx!.globalAlpha = 1;
     }
 
-    function frame(t: number) {
+    function frame() {
       const w = canvas!.width;
       const h = canvas!.height;
       ctx!.clearRect(0, 0, w, h);
 
-      for (let i = tracks.length - 1; i >= 0; i -= 1) {
-        const tr = tracks[i]!;
-        const age = t - tr.bornAt;
-        if (age > tr.lifeMs) {
-          tracks[i] = spawnTrack(rand, t, i + 1);
-          continue;
-        }
-        // bounce softly inside the frame rather than wrapping -- reads as
-        // patrolling/loitering, which is more plausible than teleporting
-        const dt = 1 / 60;
-        tr.x += tr.vx * dt;
-        tr.y += tr.vy * dt;
-        if (tr.x < 0.05 || tr.x > 0.95) tr.vx *= -1;
-        if (tr.y < 0.12 || tr.y > 0.88) tr.vy *= -1;
-        tr.x = Math.min(0.95, Math.max(0.05, tr.x));
-        tr.y = Math.min(0.88, Math.max(0.12, tr.y));
+      // Stop drawing stale boxes once the feed has gone quiet for a while
+      // (socket dropped, worker stopped, camera lost) -- an old box frozen
+      // over live video is a worse lie than no box at all.
+      const age = performance.now() - lastFrameAtRef.current;
+      if (lastFrameAtRef.current === 0 || age > 4000) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
 
-        const alpha =
-          age < tr.fadeMs
-            ? age / tr.fadeMs
-            : age > tr.lifeMs - tr.fadeMs
-              ? (tr.lifeMs - age) / tr.fadeMs
-              : 1;
-        const color = CLASS_COLOR[tr.cls];
-        const bx = (tr.x - tr.w / 2) * w;
-        const by = (tr.y - tr.h / 2) * h;
-        const bw = tr.w * w;
-        const bh = tr.h * h;
+      // object-fit: cover maths -- the <video> crops to fill the tile, so a
+      // box computed in the camera's native pixel space has to go through
+      // the same scale+crop the browser applied to the picture, or it lands
+      // in the wrong place (exactly the "box outside the face" bug this
+      // replaces). scale = the LARGER ratio, because cover crops the
+      // smaller dimension's overflow rather than letterboxing it.
+      const srcW = camera.resolution_w || w;
+      const srcH = camera.resolution_h || h;
+      const scale = Math.max(w / srcW, h / srcH);
+      const offX = (w - srcW * scale) / 2;
+      const offY = (h - srcH * scale) / 2;
 
-        ctx!.save();
-        ctx!.globalAlpha = Math.max(0, Math.min(1, alpha)) * 0.95;
+      for (const track of tracksRef.current) {
+        const [x1, y1, x2, y2] = track.box;
+        const bx = x1 * scale + offX;
+        const by = y1 * scale + offY;
+        const bw = (x2 - x1) * scale;
+        const bh = (y2 - y1) * scale;
+        const color = colorFor(track.cls);
+
         drawBracketBox(bx, by, bw, bh, color);
 
-        const speedPxPerSec = Math.hypot(tr.vx, tr.vy) * w;
-        const speed = (speedPxPerSec / 40).toFixed(1); // arbitrary px->m/s-ish scale, cosmetic only
-        const label = `${tr.cls === 'vehicle' ? 'VEHICLE' : 'PERSON'} #${tr.id}`;
-        const sub = `${speed} m/s  vx${tr.vx >= 0 ? '+' : ''}${(tr.vx * 40).toFixed(1)} vy${tr.vy >= 0 ? '+' : ''}${(tr.vy * 40).toFixed(1)}`;
-
-        ctx!.font = `${Math.max(9, Math.round(h * 0.001) + 9)}px "IBM Plex Mono", monospace`;
+        const speed = (track.speed_px_s / 40).toFixed(1); // px/s -> cosmetic m/s-ish scale
+        const label = `${track.cls.toUpperCase()} #${track.track_id}`;
+        ctx!.font = `${Math.max(9, Math.round(h * 0.012))}px "IBM Plex Mono", monospace`;
         ctx!.textBaseline = 'bottom';
         ctx!.fillStyle = color;
         ctx!.fillText(label, bx, by - 12);
-        ctx!.font = `${Math.max(8, Math.round(h * 0.001) + 8)}px "IBM Plex Mono", monospace`;
-        ctx!.globalAlpha = (Math.max(0, Math.min(1, alpha)) * 0.95) * 0.75;
-        ctx!.fillText(sub, bx, by - 1);
-        ctx!.restore();
+        ctx!.globalAlpha = 0.75;
+        ctx!.font = `${Math.max(8, Math.round(h * 0.01))}px "IBM Plex Mono", monospace`;
+        ctx!.fillText(`${speed} m/s`, bx, by - 1);
+        ctx!.globalAlpha = 1;
       }
 
       raf = requestAnimationFrame(frame);
@@ -182,7 +150,7 @@ export function DetectionOverlay({ active, seed }: { active: boolean; seed: stri
       cancelAnimationFrame(raf);
       ro?.disconnect();
     };
-  }, [active, seed]);
+  }, [active, camera.resolution_w, camera.resolution_h]);
 
   if (!active) return null;
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />;
