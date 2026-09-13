@@ -9,6 +9,12 @@ anpr:
   min_plate_width_px: 80          # below this, OCR on CCTV is guessing
   plate_conf: 0.45
   max_crops_per_track: 12
+  classes: [vehicle]               # which of our own taxonomy's classes get cropped
+
+  # How often the worker reloads watchlist_vehicle from Postgres. A DB that is
+  # not up yet just means no NEW hits until the next refresh succeeds (P9) --
+  # the worker keeps reading and voting on plates regardless.
+  watchlist_refresh_s: 60
 
   # Multi-frame voting is MANDATORY (§7.9). Single-frame CCTV OCR is not
   # trustworthy and P3 applies.
