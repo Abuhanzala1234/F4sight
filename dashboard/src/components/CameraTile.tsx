@@ -3,6 +3,7 @@ import Hls from 'hls.js';
 import type { Camera } from '@/types';
 import { api } from '@/lib/api';
 import { StatusDot } from './Primitives';
+import { DetectionOverlay } from './DetectionOverlay';
 
 /**
  * One camera on the live wall.
@@ -84,6 +85,8 @@ export function CameraTile({ camera, onSelect }: { camera: Camera; onSelect?: ()
         autoPlay
         className="h-full w-full bg-void object-cover opacity-90 transition-opacity group-hover:opacity-100"
       />
+
+      <DetectionOverlay active={state === 'live'} seed={camera.id} />
 
       {state !== 'live' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-void/85">
