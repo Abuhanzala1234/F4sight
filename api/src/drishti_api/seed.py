@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import logging
 import os
+from typing import Any
 
 from drishti_worker.anpr import plate_hmac
 from sqlalchemy import select
@@ -36,7 +37,7 @@ DEMO_USERS = [
     ("viewer", "Sector HQ Display", "viewer", "drishti-viewer"),
 ]
 
-CAMERAS = [
+CAMERAS: list[dict[str, Any]] = [
     {
         "code": "CAM-01",
         "name": "Main gate approach",

@@ -40,18 +40,26 @@ jobs:
       - name: black --check
         run: black --check worker api scripts
 
-      - name: mypy (non-blocking — see note)
-        # 30 pre-existing errors as of this workflow's introduction, none in
-        # anything this session touched: missing stubs for psycopg/onnxruntime/
-        # pytesseract/jose/scipy.optimize, plus real type mismatches in
-        # enhance.py, seed.py, ws.py and verify.py. `make lint` runs mypy
-        # unconditionally and was, apparently, never run to a clean exit by
-        # whoever built this — it was configured, not verified. Fixing 30
-        # unrelated errors was out of scope for what this session was asked to
-        # finish; this step stays visible (so regressions from here are caught)
-        # without blocking merges on debt nobody in this session introduced.
+      - name: mypy
+        # Was 30 errors when this workflow was first written -- not from a
+        # code problem but from config discovery: `mypy worker/src api/src`
+        # from the repo root resolves ONE pyproject.toml starting at the
+        # current directory, so it never saw either sub-project's [tool.mypy]
+        # (api/pyproject.toml has none of its own at all) and ran under raw
+        # defaults instead. Fixed by adding [tool.mypy] to the root
+        # pyproject.toml, same fix as the black line-length issue above it.
+        # That alone cleared 14 errors (ignore_missing_imports finally
+        # applied); pinning python_version=3.12 there (numpy's own stubs use
+        # 3.12+ syntax mypy cannot parse in 3.11 mode, regardless of the
+        # interpreter running it -- this does not relax the package's
+        # requires-python >=3.11 floor) cleared the rest of the import
+        # errors. The remaining 5 were real: enhance.py's `applied`/`params`
+        # widened type mid-branch, seed.py's CAMERAS needed an explicit
+        # dict[str, Any], ws.py's redis-py stub returns one broad Union
+        # across every command shape, and verify.py's `verdict` needed the
+        # same Literal its Pydantic field already declares (added as
+        # schemas.Verdict, reused by both).
         run: mypy worker/src api/src
-        continue-on-error: true
 
   dashboard:
     name: dashboard (vitest, tsc)

@@ -13,3 +13,27 @@
 [tool.black]
 line-length = 100
 target-version = ["py311"]
+
+# `mypy worker/src api/src` (Makefile's `lint` target) has the identical
+# problem black had above: mypy resolves its config from a single file
+# starting at the current directory, not per-source-tree, so running it from
+# the repo root ignored both worker/pyproject.toml's and api/pyproject.toml's
+# [tool.mypy] (api/pyproject.toml has no [tool.mypy] section of its own at
+# all) and silently fell back to strict defaults -- most visibly
+# ignore_missing_imports, which is why third-party libraries neither
+# sub-project ships stubs for (onnxruntime, psycopg, jose, scipy.optimize)
+# were reported as errors despite worker/pyproject.toml already turning that
+# off for a worker-scoped run.
+#
+# python_version is 3.12, not the 3.11 the package metadata targets:
+# numpy>=2.x's own bundled .pyi stubs use PEP 695 `type` statements, which are
+# a hard parse error under mypy's 3.11 syntax mode regardless of which
+# Python actually runs mypy. This governs which typing SYNTAX mypy accepts
+# while checking, not the runtime `requires-python` floor for the shipped
+# code -- raising it here does not relax that.
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true

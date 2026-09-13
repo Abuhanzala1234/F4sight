@@ -98,7 +98,17 @@ class ConnectionManager:
 
         while self._subs:
             try:
-                entries = await client.xread({settings.alert_stream: last_id}, count=32, block=2000)
+                # redis-py's own stubs type every command's return as one
+                # broad Union (ResponseT) shared across GET, INCR, XREAD, etc,
+                # since one client class covers every command shape. With
+                # decode_responses=True, XREAD's actual runtime shape is
+                # exactly this; the annotation says what mypy cannot infer
+                # from the library on its own.
+                entries: list[tuple[str, list[tuple[str, dict[str, str]]]]] = (
+                    await client.xread(  # type: ignore[assignment]
+                        {settings.alert_stream: last_id}, count=32, block=2000
+                    )
+                )
             except Exception:
                 # Redis down degrades fan-out to polling; the DB path is
                 # unaffected (§13). Retry rather than kill the task.

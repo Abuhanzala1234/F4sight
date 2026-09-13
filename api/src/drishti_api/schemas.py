@@ -17,6 +17,7 @@ Severity = Literal["info", "low", "medium", "high", "critical"]
 AlertStatus = Literal["raised", "acknowledged", "adjudicated"]
 Adjudication = Literal["true_positive", "false_positive", "unclear"]
 Role = Literal["viewer", "operator", "investigator", "admin"]
+Verdict = Literal["VERIFIED", "PENDING_ANCHOR", "TAMPERED", "UNVERIFIABLE"]
 ZoneKind = Literal["area", "tripwire", "mask"]
 
 
@@ -260,7 +261,7 @@ class VerificationOut(BaseModel):
     evidence_items: list[EvidenceItemVerification] = Field(default_factory=list)
     merkle: MerkleProofOut | None = None
     ledger: LedgerInfoOut | None = None
-    verdict: Literal["VERIFIED", "PENDING_ANCHOR", "TAMPERED", "UNVERIFIABLE"]
+    verdict: Verdict
     checks: list[VerificationCheck] = Field(default_factory=list)
     diff: list[str] = Field(default_factory=list)
 

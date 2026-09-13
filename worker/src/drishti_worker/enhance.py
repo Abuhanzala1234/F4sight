@@ -184,6 +184,12 @@ def enhance_for_model(
         # Identity. No copy: nothing downstream mutates the model input either.
         return EnhancementResult(image=image, params={"profile": "day"}, applied=())
 
+    # Explicit rather than inferred: every branch below either grows the tuple
+    # past one element (night + zero-DCE) or mixes a str into what would
+    # otherwise infer as dict[str, float] (zerodce_weights is a path).
+    applied: tuple[str, ...]
+    params: dict[str, Any]
+
     try:
         if profile == "lowlight":
             out = _clahe(image, conf)

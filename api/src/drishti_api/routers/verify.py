@@ -30,6 +30,7 @@ from ..schemas import (
     EvidenceItemVerification,
     LedgerInfoOut,
     MerkleProofOut,
+    Verdict,
     VerificationCheck,
     VerificationOut,
 )
@@ -133,6 +134,7 @@ async def verify_alert(
         )
 
     # --- 3. verdict ---
+    verdict: Verdict
     if not result.ok:
         verdict = "TAMPERED"
     elif row is None:
