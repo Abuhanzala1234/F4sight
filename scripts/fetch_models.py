@@ -21,6 +21,7 @@ import shutil
 import sys
 import urllib.error
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +39,11 @@ class Artefact:
     # Ultralytics ships .pt; we export to ONNX so the runtime is onnxruntime and
     # there is no torch dependency at inference time.
     export_onnx: bool = False
+    #: Member of a downloaded archive to extract into ``path``. InsightFace
+    #: publishes one zip of five models; we take only the two the spec uses and
+    #: leave gender/age and the landmark nets on the floor, because §7.10 has no
+    #: use for them and shipping unused biometric models is not a neutral act.
+    zip_member: str = ""
     optional: bool = False
     notes: str = ""
 
@@ -66,8 +72,17 @@ ARTEFACTS: tuple[Artefact, ...] = (
         url="https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip",
         licence="MIT (code), free weights",
         purpose="face detection — OPT-IN, disabled by default (P6)",
+        zip_member="det_500m.onnx",
         optional=True,
-        notes="zip; extract det_500m.onnx",
+    ),
+    Artefact(
+        key="face.embed",
+        path="models/face/w600k_mbf.onnx",
+        url="https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip",
+        licence="MIT (code), free weights",
+        purpose="512-d face embedding — OPT-IN, disabled by default (P6)",
+        zip_member="w600k_mbf.onnx",
+        optional=True,
     ),
 )
 
@@ -135,9 +150,44 @@ def fetch(artefact: Artefact, force: bool) -> tuple[bool, str]:
         pt.unlink(missing_ok=True)
         return True, "downloaded + exported"
 
+    if artefact.zip_member:
+        return extract_from_zip(artefact, dest)
+
     if not download(artefact.url, dest):
         return False, "download failed"
     return True, "downloaded"
+
+
+def extract_from_zip(artefact: Artefact, dest: Path) -> tuple[bool, str]:
+    """Pull one member out of a downloaded archive.
+
+    Without this, the archive was saved *under the member's name* — a 127 MB
+    zip sitting at ``models/face/scrfd_500m.onnx``. Nothing caught it, because
+    the manifest faithfully records the SHA-256 of whatever is on disk: the
+    integrity check confirms the file has not changed, not that it is the file
+    it claims to be. It would have failed at the first `ort.InferenceSession`,
+    which is the moment someone turns face matching on.
+    """
+    archive = MODELS_DIR / Path(artefact.url).name
+    if not archive.exists() and not download(artefact.url, archive):
+        return False, "download failed"
+
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            members = {Path(name).name: name for name in bundle.namelist()}
+            member = members.get(artefact.zip_member)
+            if member is None:
+                return False, (
+                    f"{artefact.zip_member} is not in {archive.name} "
+                    f"(found: {', '.join(sorted(members)) or 'nothing'})"
+                )
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with bundle.open(member) as src, dest.open("wb") as out:
+                shutil.copyfileobj(src, out)
+    except (zipfile.BadZipFile, OSError) as exc:
+        print(f"  ✗ could not extract {artefact.zip_member}: {exc}", file=sys.stderr)
+        return False, "extract failed"
+    return True, f"downloaded + extracted {artefact.zip_member}"
 
 
 def build_manifest() -> dict[str, object]:
@@ -170,7 +220,7 @@ def verify_only() -> int:
     if not MANIFEST.exists():
         print(f"✗ {MANIFEST} not found. Run `make models` first.", file=sys.stderr)
         return 1
-    manifest = json.loads(MANIFEST.read_text())
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     failures = 0
     for entry in manifest.get("files", []):
         path = Path(entry["path"])
@@ -226,7 +276,13 @@ def main() -> int:
             failed_required.append(artefact.key)
         print()
 
-    MANIFEST.write_text(json.dumps(build_manifest(), indent=2) + "\n")
+    # Archives are shared between artefacts (one InsightFace zip holds both face
+    # models), so they are cleaned up here rather than after each extraction.
+    for artefact in ARTEFACTS:
+        if artefact.zip_member:
+            (MODELS_DIR / Path(artefact.url).name).unlink(missing_ok=True)
+
+    MANIFEST.write_text(json.dumps(build_manifest(), indent=2) + "\n", encoding="utf-8")
     print(f"wrote {MANIFEST}")
 
     print("\n" + "─" * 62)
