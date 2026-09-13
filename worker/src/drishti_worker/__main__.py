@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .alerting import AlertAssembler
+from .anpr import AnprConfig
 from .config import AppConfig, load_config
 from .detect import DetectorConfig, build_detector
 from .enhance import EnhanceConfig
@@ -38,6 +39,7 @@ from .rules import DebounceConfig, RuleConfig
 from .sinks import FanoutSink, MinioSink, NullSink, PostgresSink, RedisSink, SpoolSink
 from .track import TrackerConfig
 from .types import Calibration, CameraRuntime, ZoneKind, ZoneRuntime
+from .watchlist import WatchlistCache
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +272,40 @@ def build_sinks(cfg: AppConfig) -> tuple[FanoutSink, MinioSink | None]:
     )
 
 
+def build_anpr(cfg: AppConfig) -> tuple[AnprConfig, Any, bytes]:
+    """§7.9. Returns the config, a shared reader (or None if disabled/unbuilt),
+    and the plate HMAC key.
+
+    Fails soft by design: a missing or too-short key does not stop the
+    worker, it just means settled plates are never checked against the
+    watchlist (WatchlistPlateRule.evaluate short-circuits on ``plate_hit is
+    None``) -- the same posture as a missing model weight file for a
+    non-critical stage.
+    """
+    anpr_cfg = AnprConfig.from_mapping(cfg.as_dict())
+    if not anpr_cfg.enabled:
+        return anpr_cfg, None, b""
+
+    from .anpr import build_reader
+
+    reader = build_reader(cfg.as_dict())
+    key = os.getenv(anpr_cfg.hmac_key_env, "").encode()
+    if not key:
+        logger.warning(
+            "%s is not set; ANPR will read and vote on plates but cannot check "
+            "them against the watchlist",
+            anpr_cfg.hmac_key_env,
+        )
+    elif len(key) < 16:
+        logger.warning(
+            "%s is only %d bytes (need >= 16); ANPR watchlist checks are disabled",
+            anpr_cfg.hmac_key_env,
+            len(key),
+        )
+        key = b""
+    return anpr_cfg, reader, key
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="drishti-worker", description="DRISHTI-BOP analytics worker"
@@ -325,6 +361,17 @@ def main(argv: list[str] | None = None) -> int:
         stats_interval_s=float(cfg.get("pipeline.stats_interval_s", 10)),
     )
 
+    anpr_cfg, anpr_reader, plate_hmac_key = build_anpr(cfg)
+    watchlist = WatchlistCache()
+    if anpr_reader is not None:
+        # Best-effort from the start: a DB that is not up yet just means no
+        # watchlist hits until the first successful refresh (P9). ANPR keeps
+        # reading and voting on plates regardless -- only the watchlist check
+        # depends on this.
+        watchlist.start_refresh_thread(
+            _dsn(), interval_s=float(cfg.get("anpr.watchlist_refresh_s", 60.0))
+        )
+
     for camera, source, zones in cameras:
         pipeline.add_worker(
             CameraWorker(
@@ -341,6 +388,10 @@ def main(argv: list[str] | None = None) -> int:
                 frame_queue=pipeline.frame_queue,
                 on_alert=on_alert,
                 clip_pre_roll_s=float(cfg.get("evidence.clip_pre_roll_s", 5.0)),
+                anpr_cfg=anpr_cfg,
+                anpr_reader=anpr_reader,
+                watchlist=watchlist,
+                plate_hmac_key=plate_hmac_key,
             )
         )
 

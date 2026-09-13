@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import numpy as np
 from helpers import T0
 
+from drishti_worker.anpr import AnprConfig, PlateCandidate, plate_hmac
 from drishti_worker.detect import DetectorConfig, MockDetector
 from drishti_worker.enhance import EnhanceConfig
 from drishti_worker.evqm import EVQMConfig
@@ -19,7 +21,8 @@ from drishti_worker.pipeline import CameraWorker, DetBundle, Pipeline, _DropOlde
 from drishti_worker.risk import RiskConfig
 from drishti_worker.rules import DebounceConfig, RuleConfig
 from drishti_worker.track import TrackerConfig
-from drishti_worker.types import Detection, Frame, FrameTransform
+from drishti_worker.types import Detection, Frame, FrameTransform, ZoneKind, ZoneRuntime
+from drishti_worker.watchlist import PlateWatchHit, WatchlistCache
 
 
 class Recorder:
@@ -263,3 +266,162 @@ class TestPipelineAssembly:
         pipeline = Pipeline(MockDetector(cfg), cfg)
         pipeline.add_worker(build_worker(camera, [tripwire_zone], Recorder()))
         assert len(pipeline.health()["cameras"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# ANPR wiring (§7.9): the pure voting/validation/HMAC logic already has its
+# own property tests in test_anpr.py. What matters here is the plumbing --
+# that a settled, watchlisted plate actually reaches the rule engine as
+# ``plate_hit``, that a non-watchlisted plate does not, and that a broken OCR
+# backend degrades the camera, never kills it (P8).
+# ---------------------------------------------------------------------------
+
+PLATE_TEXT = "HR26DA1234"
+HMAC_KEY = b"x" * 32
+
+
+class FakeAnprReader:
+    """Always reads the same plate, deterministically -- voting is exercised
+    for real (min_frames_agreed still has to be met across calls)."""
+
+    def __init__(self, text: str = PLATE_TEXT, raises: bool = False) -> None:
+        self.text = text
+        self.raises = raises
+        self.calls = 0
+
+    def read(self, crop, frame_id):
+        self.calls += 1
+        if self.raises:
+            raise RuntimeError("OCR backend exploded")
+        return PlateCandidate(
+            raw_text=self.text,
+            conf=0.9,
+            box=(0.0, 0.0, 10.0, 10.0),
+            char_confs=(0.9,) * len(self.text),
+            frame_id=frame_id,
+        )
+
+
+def vehicle_at(x: float, conf: float = 0.9) -> Detection:
+    return Detection("vehicle", conf, (x - 60.0, 200.0, x + 60.0, 350.0), 2)
+
+
+def vehicle_zone() -> ZoneRuntime:
+    """``area_zone``/``tripwire_zone`` only admit ``person`` -- this is their
+    vehicle-shaped twin, since WATCHLIST_PLATE needs a gated vehicle track and
+    the rule gate runs after zone/class filtering elsewhere in the engine."""
+    return ZoneRuntime(
+        zone_id="z-vehicle-area",
+        name="Vehicle area",
+        kind=ZoneKind.AREA,
+        polygon=((100.0, 100.0), (500.0, 100.0), (500.0, 500.0), (100.0, 500.0)),
+        classes=("vehicle",),
+        severity_base=3,
+    )
+
+
+def bundle_with_image(camera, i: int, detections, profile: str = "day") -> DetBundle:
+    """Same as ``bundle()``, but with a real array -- ANPR crops into it."""
+    frame = frame_at(camera, i)
+    image = np.zeros((camera.height, camera.width, 3), dtype=np.uint8)
+    frame = Frame(frame.camera_id, frame.frame_id, frame.ts_utc, image, camera.width, camera.height)
+    return DetBundle(
+        frame=frame,
+        detections=detections,
+        transform=FrameTransform(1.0, 1.0),
+        profile=profile,
+        enhancement_params={"profile": profile},
+        inference_ms=10.0,
+    )
+
+
+def build_anpr_worker(camera, zones, recorder, *, reader, watchlist=None, anpr_cfg=None):
+    return CameraWorker(
+        camera=camera,
+        source="/dev/null/fixture.mp4",
+        zones=zones,
+        ingest_cfg=IngestConfig(analytics_fps=6.0),
+        evqm_cfg=EVQMConfig(enabled=False),
+        enhance_cfg=EnhanceConfig(),
+        tracker_cfg=TrackerConfig(min_hits=3),
+        rule_cfg=RuleConfig(),
+        risk_cfg=RiskConfig(),
+        debounce_cfg=DebounceConfig(cooldown_s=45.0, escalate_after_s=120.0),
+        frame_queue=_DropOldestQueue(4),
+        on_alert=recorder,
+        anpr_cfg=anpr_cfg or AnprConfig(enabled=True, classes=("vehicle",), min_frames_agreed=3),
+        anpr_reader=reader,
+        watchlist=watchlist or WatchlistCache(),
+        plate_hmac_key=HMAC_KEY,
+    )
+
+
+class TestAnprWiring:
+    def test_settled_watchlisted_plate_reaches_the_rule_engine(self, camera):
+        digest = plate_hmac(PLATE_TEXT, HMAC_KEY)
+        watchlist = WatchlistCache()
+        watchlist.set_plates([PlateWatchHit(digest, "stolen")])
+        recorder = Recorder()
+        worker = build_anpr_worker(
+            camera, [vehicle_zone()], recorder, reader=FakeAnprReader(), watchlist=watchlist
+        )
+
+        # >= RuleConfig.min_track_age_frames (8) so the gate lets a standalone
+        # rule through at all; the plate itself settles well before that
+        # (min_frames_agreed=3), so it is sitting there waiting when it does.
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [vehicle_at(300.0)]))
+
+        assert recorder.alerts, "a watchlisted plate must raise an alert"
+        codes = {s.code for a in recorder.alerts for s in a["signals"]}
+        assert "WATCHLIST_PLATE" in codes
+
+    def test_settled_plate_not_on_the_watchlist_raises_nothing(self, camera):
+        """Reading and voting on a plate is not itself an event -- only a
+        watchlist match is (P3: a false alert costs more than a missed one).
+        No zones at all, so the only possible alert source is ANPR itself."""
+        recorder = Recorder()
+        worker = build_anpr_worker(
+            camera, [], recorder, reader=FakeAnprReader(), watchlist=WatchlistCache()
+        )
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [vehicle_at(300.0)]))
+        assert recorder.alerts == []
+
+    def test_a_broken_ocr_backend_degrades_the_camera_not_kills_it(self, camera):
+        """P8: one bad crop or a flaky OCR backend must not stop analytics."""
+        recorder = Recorder()
+        reader = FakeAnprReader(raises=True)
+        worker = build_anpr_worker(camera, [vehicle_zone()], recorder, reader=reader)
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [vehicle_at(300.0)]))
+        assert reader.calls > 0  # it really was called, and really did raise
+        # No crash reached this line; the vehicle's OWN zone-intrusion alert
+        # (unrelated to ANPR) still fires normally.
+        assert any(any(s.code == "ZONE_INTRUSION" for s in a["signals"]) for a in recorder.alerts)
+
+    def test_disabled_anpr_never_calls_the_reader(self, camera):
+        reader = FakeAnprReader()
+        worker = build_anpr_worker(
+            camera,
+            [vehicle_zone()],
+            Recorder(),
+            reader=reader,
+            anpr_cfg=AnprConfig(enabled=False),
+        )
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [vehicle_at(300.0)]))
+        assert reader.calls == 0
+
+    def test_a_closed_track_does_not_leak_its_voter(self, camera):
+        """The plate voter dict is per-track state living outside the tracker;
+        it must be torn down at close_expired like everything else (§7.5)."""
+        reader = FakeAnprReader()
+        worker = build_anpr_worker(camera, [vehicle_zone()], Recorder(), reader=reader)
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [vehicle_at(300.0)]))
+        assert worker._plate_voters  # settled during the run
+        # Push enough frames with no detections that the tracker expires it.
+        for i in range(10, 45):
+            worker._process(bundle_with_image(camera, i, []))
+        assert worker._plate_voters == {}

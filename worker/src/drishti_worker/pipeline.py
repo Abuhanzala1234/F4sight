@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .alerting import FrameBuffer
+from .anpr import AnprConfig, PlateVoter
 from .detect import Detector, DetectorConfig
 from .enhance import EnhanceConfig, enhance_for_model
 from .evqm import EVQM, EVQMConfig
@@ -58,6 +59,7 @@ from .types import (
     StreamState,
     ZoneRuntime,
 )
+from .watchlist import WatchlistCache
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +151,10 @@ class CameraWorker:
         on_alert: Any,
         on_state: Any = None,
         clip_pre_roll_s: float = 5.0,
+        anpr_cfg: AnprConfig | None = None,
+        anpr_reader: Any = None,
+        watchlist: WatchlistCache | None = None,
+        plate_hmac_key: bytes = b"",
     ) -> None:
         self.camera = camera
         self.zones = list(zones)
@@ -171,6 +177,20 @@ class CameraWorker:
         margin = 1.5
         buffer_frames = max(2, int(clip_pre_roll_s * camera.analytics_fps * margin))
         self.frame_buffer = FrameBuffer(max_frames=buffer_frames)
+
+        # ANPR (§7.9). ``anpr_reader`` is shared across every camera (built
+        # once in __main__.py, same reasoning as the detector: one accelerator,
+        # not one model copy per camera). ``_plate_voters`` is per-camera,
+        # per-track state living outside the tracker — same pattern as
+        # RuleEngine's ``_states`` — and is cleared in ``_process`` whenever
+        # the tracker reports a track closed, so a plate never outlives the
+        # vehicle it was read from.
+        self.anpr_cfg = anpr_cfg
+        self._anpr_reader = anpr_reader if (anpr_cfg and anpr_cfg.enabled) else None
+        self._plate_voters: dict[int, PlateVoter] = {}
+        self._plate_hits: dict[int, Mapping[str, Any]] = {}
+        self._watchlist = watchlist
+        self._plate_hmac_key = plate_hmac_key
 
         self.reader = build_reader(camera.camera_id, source, ingest_cfg, self._on_frame, on_state)
 
@@ -252,6 +272,10 @@ class CameraWorker:
         for closed in self.tracker.close_expired():
             self.rules.close_track(closed.track_id)
             self.debouncer.close_track(self.camera.camera_id, closed.track_id)
+            self._plate_voters.pop(closed.track_id, None)
+            self._plate_hits.pop(closed.track_id, None)
+
+        plate_hit = self._read_plates(tracks, frame)
 
         signals_by_track = self.rules.evaluate(
             tracks,
@@ -260,6 +284,7 @@ class CameraWorker:
             frame.ts_utc,
             bundle.profile,
             tamper_suspected=self.evqm.tamper_suspected,
+            plate_hit=plate_hit,
         )
         if not signals_by_track:
             return
@@ -318,6 +343,94 @@ class CameraWorker:
                 suppressed_since_last=decision.suppressed_count,
                 frame_buffer=self.frame_buffer,
             )
+
+    def _read_plates(self, tracks: Sequence[Any], frame: Frame) -> Mapping[str, Any] | None:
+        """ANPR (§7.9): read + vote for every vehicle track, off the hot path
+        in the sense that matters -- it costs nothing when disabled or when no
+        vehicle track is present, and a single OCR pass is cheap next to
+        detection.
+
+        Returns at most one settled watchlist hit. ``RuleContext.plate_hit``
+        is a single slot, not a per-track map (§7.7, a frozen contract) --
+        two vehicles both settling a watchlist plate in the same frame is
+        rare enough that surfacing the first and picking up the second on its
+        next settled frame is the honest trade-off, not a silent drop.
+
+        A resolved hit is cached in ``_plate_hits`` and returned on every
+        subsequent call, not just the frame it settled on. It has to be: OCR
+        voting can settle a plate (``min_frames_agreed``, typically 3) well
+        before the rule gate opens (``min_track_age_frames``, default 8) --
+        without the cache, the one frame where ``plate_hit`` was non-None is
+        never one the gate lets through, and WATCHLIST_PLATE can never fire.
+        """
+        if self._anpr_reader is None:
+            return None
+        cfg = self.anpr_cfg
+        classes = cfg.classes if cfg else ("vehicle",)
+        height, width = frame.image.shape[:2]
+
+        for track in tracks:
+            if track.cls not in classes:
+                continue
+
+            known = self._plate_hits.get(track.track_id)
+            if known is not None:
+                return known
+
+            voter = self._plate_voters.get(track.track_id)
+            if voter is None:
+                voter = PlateVoter(
+                    min_frames_agreed=cfg.min_frames_agreed if cfg else 3,
+                    min_char_conf=cfg.min_char_conf if cfg else 0.55,
+                    window_frames=cfg.window_frames if cfg else 30,
+                    max_candidates=cfg.max_crops_per_track if cfg else 12,
+                )
+                self._plate_voters[track.track_id] = voter
+            if voter.settled is not None:
+                continue  # already read this vehicle; no need to keep cropping it
+
+            x1, y1, x2, y2 = (int(max(0, v)) for v in track.box)
+            x2, y2 = min(width, x2), min(height, y2)
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            try:
+                candidate = self._anpr_reader.read(frame.image[y1:y2, x1:x2], frame.frame_id)
+            except Exception:
+                # A bad crop or a flaky OCR backend must not cost the frame,
+                # let alone the camera (P8).
+                logger.exception(
+                    "camera=%s ANPR read failed for track=%s; skipping this crop",
+                    self.camera.code,
+                    track.track_id,
+                )
+                continue
+            if candidate is None:
+                continue
+
+            settled = voter.add(candidate)
+            if settled is None or self._watchlist is None or not self._plate_hmac_key:
+                continue
+            try:
+                digest = settled.hmac(self._plate_hmac_key)
+            except ValueError:
+                logger.exception(
+                    "camera=%s could not HMAC the settled plate for track=%s",
+                    self.camera.code,
+                    track.track_id,
+                )
+                continue
+            hit = self._watchlist.plate_match(digest)
+            if hit is not None:
+                resolved = {
+                    "track_id": track.track_id,
+                    "plate_hmac": digest,
+                    "category": hit.category,
+                    "frames_agreed": settled.frames_agreed,
+                }
+                self._plate_hits[track.track_id] = resolved
+                return resolved
+        return None
 
     def health(self) -> dict[str, Any]:
         return {

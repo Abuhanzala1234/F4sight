@@ -38,6 +38,7 @@ from typing import Any
 from .types import BoxXYXY
 
 __all__ = [
+    "AnprConfig",
     "PlateCandidate",
     "PlateRead",
     "PlateVoter",
@@ -48,6 +49,38 @@ __all__ = [
     "validate_indian_plate",
     "vote",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class AnprConfig:
+    """§7.9, read from ``config/anpr.yaml``. Everything below the read is a
+    pure function; this is just the knobs for how pipeline.py drives them."""
+
+    enabled: bool = True
+    classes: tuple[str, ...] = ("vehicle",)
+    min_frames_agreed: int = 3
+    min_char_conf: float = 0.55
+    window_frames: int = 30
+    max_crops_per_track: int = 12
+    region: str | None = "IN"
+    hmac_key_env: str = "PLATE_HMAC_KEY"
+
+    @classmethod
+    def from_mapping(cls, cfg: Mapping[str, Any]) -> AnprConfig:
+        block = dict(cfg.get("anpr", cfg))
+        voting = dict(block.get("voting", {}))
+        storage = dict(block.get("storage", {}))
+        return cls(
+            enabled=bool(block.get("enabled", True)),
+            classes=tuple(block.get("classes", ("vehicle",))),
+            min_frames_agreed=int(voting.get("min_frames_agreed", 3)),
+            min_char_conf=float(voting.get("min_char_conf", 0.55)),
+            window_frames=int(voting.get("window_frames", 30)),
+            max_crops_per_track=int(block.get("max_crops_per_track", 12)),
+            region=block.get("region", "IN"),
+            hmac_key_env=str(storage.get("hmac_key_env", "PLATE_HMAC_KEY")),
+        )
+
 
 # The five confusions that are ~80% of real CCTV OCR error (config/anpr.yaml).
 # Read as: this letter is commonly emitted where that digit belongs.
