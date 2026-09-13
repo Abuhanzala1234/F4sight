@@ -72,7 +72,7 @@ def load_zone_specs(path: Path, camera_code: str) -> list[dict]:
     happened once in this file already (see docs/EVAL.md)."""
     if not path.exists():
         return []
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     return list(data.get(camera_code, []))
 
 
@@ -83,7 +83,7 @@ def build_zones(specs: list[dict], width: int, height: int) -> list[ZoneRuntime]
     eval harness scores against the identical geometry a deployment would use
     for the same zones.json content.
     """
-    from drishti_worker.geometry import denormalise  # noqa: PLC0415
+    from drishti_worker.geometry import denormalise
 
     out: list[ZoneRuntime] = []
     for z in specs:
@@ -288,7 +288,7 @@ def main() -> int:
     detector = build_detector(DetectorConfig.from_mapping(cfg.as_dict()))
 
     results: list[ClipResult] = []
-    for line in labels_path.read_text().splitlines():
+    for line in labels_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         label = json.loads(line)
@@ -370,7 +370,7 @@ def main() -> int:
         )
     lines.append("")
 
-    Path(args.out).write_text("\n".join(lines))
+    Path(args.out).write_text("\n".join(lines), encoding="utf-8")
     print(
         f"\nprecision {precision:.3f}  recall {recall:.3f}  "
         f"FP/idle-hour {fp_per_idle_hour:.2f}"

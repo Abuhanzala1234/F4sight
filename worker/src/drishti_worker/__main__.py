@@ -90,7 +90,7 @@ def verify_models(cfg: AppConfig) -> None:
             f"{manifest_path} not found. Run `make models` to download the free "
             f"model weights (~166 MB, one time). See docs/MODELS.md."
         )
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for entry in manifest.get("files", []):
         path = Path(entry["path"])
         if not path.exists():

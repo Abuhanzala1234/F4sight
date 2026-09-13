@@ -42,7 +42,7 @@ def faces_enabled(config_dir: str = "config") -> bool:
     if not path.exists():
         return False
     try:
-        data = yaml.safe_load(path.read_text()) or {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         return bool(data.get("faces", {}).get("enabled", False))
     except (OSError, yaml.YAMLError):
         logger.exception("could not read %s; treating face analytics as DISABLED", path)

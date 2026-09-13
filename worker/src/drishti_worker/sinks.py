@@ -148,7 +148,9 @@ class SpoolSink:
         return "spool"
 
     def pending_count(self) -> int:
-        return sum(1 for p in self.dir.glob("alerts-*.jsonl") for _ in p.open())
+        return sum(
+            1 for p in self.dir.glob("alerts-*.jsonl") for _ in p.open(encoding="utf-8")
+        )
 
 
 class PostgresSink:

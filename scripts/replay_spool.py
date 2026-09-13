@@ -54,7 +54,9 @@ def main() -> int:
     with psycopg.connect(dsn()) as conn:
         for path in files:
             file_ok = True
-            for line_no, line in enumerate(path.read_text().splitlines(), start=1):
+            for line_no, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
                 if not line.strip():
                     continue
                 total += 1

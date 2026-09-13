@@ -180,7 +180,7 @@ def _serialise(value: Any) -> str:
         return "false"
     if isinstance(value, str):
         return _serialise_string(value)
-    if type(value) is int or type(value) is float:  # noqa: E721 - exact type, not isinstance
+    if type(value) is int or type(value) is float:
         # Exact type, deliberately not isinstance(). numpy.float64 IS a
         # subclass of float and would pass an isinstance check here, but its
         # repr() -- what es_number_to_string relies on -- prints
