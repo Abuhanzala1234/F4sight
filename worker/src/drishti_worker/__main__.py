@@ -130,7 +130,7 @@ def load_cameras(cfg: AppConfig) -> list[tuple[CameraRuntime, str, list[ZoneRunt
 
 
 def _query_cameras_from_db(
-    cfg: AppConfig,
+    _cfg: AppConfig,
 ) -> list[tuple[CameraRuntime, str, list[ZoneRuntime]]] | None:
     """The DB-only half of :func:`load_cameras`, with no fixture fallback.
 
@@ -138,6 +138,10 @@ def _query_cameras_from_db(
     that loop must never inject the fixture camera just because the database
     had a hiccup on one poll, the way the one-shot startup path is allowed
     to.
+
+    Takes ``cfg`` (unused today, hence the underscore) purely to mirror
+    :func:`load_cameras`'s signature -- a natural place for a future
+    per-profile or per-site filter without another signature change.
     """
     dsn = _dsn()
     try:

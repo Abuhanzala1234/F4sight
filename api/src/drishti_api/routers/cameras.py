@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-import httpx
 
 from ..db import get_db
 from ..models import AuditLog, Camera, Site, Zone
