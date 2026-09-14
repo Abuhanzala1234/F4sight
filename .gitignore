@@ -40,3 +40,7 @@ ledger_data/
 .DS_Store
 .idea/
 .vscode/
+
+# Local scratch tooling (screenshots, downloaded binaries, install traces) —
+# never part of the shipped app.
+.local-tools/

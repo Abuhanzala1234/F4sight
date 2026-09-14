@@ -7,6 +7,7 @@ import { LiveWall } from '@/pages/LiveWall';
 import { Alerts } from '@/pages/Alerts';
 import { Verify } from '@/pages/Verify';
 import { StatusDot } from '@/components/Primitives';
+import { Emblem } from '@/components/Emblem';
 
 type Tab = 'wall' | 'alerts' | 'verify';
 
@@ -81,11 +82,11 @@ export default function App() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 border-b border-rule bg-void/95 backdrop-blur">
         <div className="mx-auto flex h-12 max-w-[1800px] items-center gap-5 px-4">
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-center gap-2">
+            <Emblem className="h-6 w-6 text-signal" />
             <span className="font-display text-base font-bold tracking-[0.16em] text-bright">
-              DRISHTI
+              F4SIGHT
             </span>
-            <span className="font-mono text-[10px] tracking-[0.2em] text-signal">BOP</span>
           </div>
 
           <nav className="flex items-center gap-1">
@@ -130,13 +131,14 @@ export default function App() {
               </span>
               <button
                 type="button"
-                className="font-mono text-2xs text-dim underline-offset-2 hover:text-alarm hover:underline"
+                className="border border-rule2 px-2.5 py-1 font-mono text-2xs uppercase tracking-[0.1em]
+                           text-dim transition-colors hover:border-alarm/60 hover:text-alarm"
                 onClick={() => {
                   clearSession();
                   setSession(null);
                 }}
               >
-                exit
+                Logout
               </button>
             </div>
           </div>
