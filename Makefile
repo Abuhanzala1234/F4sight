@@ -66,7 +66,11 @@ logs:  ## Tail infra logs
 # ---------------------------------------------------------------- data
 .PHONY: migrate
 migrate:  ## alembic upgrade head
-	$(BIN)/alembic -c api/alembic.ini upgrade head
+	# alembic.ini's script_location is relative to the CURRENT DIRECTORY, not
+	# to the ini file's own location -- run from the repo root (as every other
+	# target does) and it looks for repo-root/src/drishti_api/migrations,
+	# which does not exist. `cd api` first so it resolves correctly.
+	cd api && ../$(BIN)/alembic -c alembic.ini upgrade head
 
 .PHONY: seed
 seed:  ## Demo sites, cameras, zones, users, watchlist
