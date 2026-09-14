@@ -110,6 +110,17 @@ CAMERAS: list[dict[str, Any]] = [
             }
         ],
     },
+    {
+        # No fixture, no rtsp_url, disabled: an empty slot for the dashboard's
+        # "connect camera" flow (POST /cameras/{id}/connect) -- click the
+        # tile, type a phone's IP, it's live. Nothing here needs a model
+        # reload; the detector is already shared across every camera (§7.4).
+        "code": "CAM-04",
+        "name": "Camera slot 4",
+        "mediamtx_path": "cam-04",
+        "empty": True,
+        "zones": [],
+    },
 ]
 
 # Plates go in as plaintext and are stored as HMAC. Nothing here is a real
@@ -167,21 +178,30 @@ async def seed(session: AsyncSession, site_code: str, profile: str) -> None:
             )
         ).scalar_one_or_none()
         if camera is None:
+            empty = bool(spec.get("empty", False))
             camera = Camera(
                 site_id=site.id,
                 code=spec["code"],
                 name=spec["name"],
                 mediamtx_path=spec["mediamtx_path"],
-                rtsp_url=f"rtsp://{rtsp_host}:{rtsp_port}/{spec['mediamtx_path']}",
+                rtsp_url=(
+                    None if empty else f"rtsp://{rtsp_host}:{rtsp_port}/{spec['mediamtx_path']}"
+                ),
                 resolution_w=1280,
                 resolution_h=720,
                 native_fps=25.0,
                 analytics_fps=6.0 if profile == "laptop" else 12.0,
                 profile=profile,
+                enabled=not empty,
             )
             session.add(camera)
             await session.flush()
-            logger.info("created camera %s (%s)", spec["code"], spec["name"])
+            logger.info(
+                "created camera %s (%s)%s",
+                spec["code"],
+                spec["name"],
+                " [empty slot]" if empty else "",
+            )
 
         for zone_spec in spec["zones"]:
             zone = (

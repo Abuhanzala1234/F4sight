@@ -21,6 +21,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -120,6 +121,24 @@ def load_cameras(cfg: AppConfig) -> list[tuple[CameraRuntime, str, list[ZoneRunt
     yet — the fixture streams are described in ``config/`` so the worker has
     something to analyse from a cold start.
     """
+    out = _query_cameras_from_db(cfg)
+    if out:
+        logger.info("loaded %d cameras from the database", len(out))
+        return out
+    logger.warning("no cameras from the database; falling back to fixture streams from config")
+    return _fixture_cameras(cfg)
+
+
+def _query_cameras_from_db(
+    cfg: AppConfig,
+) -> list[tuple[CameraRuntime, str, list[ZoneRuntime]]] | None:
+    """The DB-only half of :func:`load_cameras`, with no fixture fallback.
+
+    Used directly by the hot-reload poller (:func:`_camera_reload_loop`) --
+    that loop must never inject the fixture camera just because the database
+    had a hiccup on one poll, the way the one-shot startup path is allowed
+    to.
+    """
     dsn = _dsn()
     try:
         import psycopg
@@ -159,17 +178,58 @@ def load_cameras(cfg: AppConfig) -> list[tuple[CameraRuntime, str, list[ZoneRunt
                 source = r[8] or f"rtsp://{os.getenv('MEDIAMTX_HOST','localhost')}:8554/{r[9]}"
                 out.append((camera, source, zones))
 
-            if out:
-                logger.info("loaded %d cameras from the database", len(out))
-                return out
+            return out
     except Exception as exc:
-        logger.warning(
-            "could not load cameras from the database (%s); "
-            "falling back to fixture streams from config",
-            exc,
-        )
+        logger.warning("could not query cameras from the database (%s)", exc)
+        return None
 
-    return _fixture_cameras(cfg)
+
+def _camera_reload_loop(
+    cfg: AppConfig,
+    pipeline: Pipeline,
+    build_worker: Any,
+    stopping: dict[str, bool],
+    interval_s: float = 5.0,
+) -> None:
+    """Notice enabled/disabled cameras and hot-add or hot-drop them, no
+    restart required, in either direction.
+
+    This is what makes "click a tile, type an IP, it's live" -- and
+    "disconnect it" -- true: the API just flips a row's ``enabled`` bit and
+    registers/removes the RTSP source on MediaMTX (see
+    ``drishti_api.routers.cameras.connect_camera`` / ``disconnect_camera``);
+    this loop is the other half, picking the change up on its own next poll.
+
+    ``Pipeline.add_worker`` is nothing more than a dict insert, and
+    ``CameraWorker.start`` only spins up that one camera's own reader/stage
+    threads -- the shared inference thread (``Pipeline._infer_loop``) is
+    already running and just starts draining whatever the new worker queues.
+    ``Pipeline.remove_worker`` is the reverse. No detector reload, no other
+    camera's stream is touched, either way.
+    """
+    while not stopping["flag"]:
+        time.sleep(interval_s)
+        if stopping["flag"]:
+            return
+        cameras = _query_cameras_from_db(cfg)
+        if cameras is None:
+            continue  # DB hiccup this poll -- try again next time, touch nothing
+
+        enabled_ids = {camera.camera_id for camera, _source, _zones in cameras}
+
+        for camera_id in list(pipeline.workers):
+            if camera_id not in enabled_ids:
+                code = pipeline.workers[camera_id].camera.code
+                pipeline.remove_worker(camera_id)
+                logger.info("camera=%s hot-dropped from the running pipeline", code)
+
+        for camera, source, zones in cameras:
+            if camera.camera_id in pipeline.workers:
+                continue
+            worker = build_worker(camera, source, zones)
+            pipeline.add_worker(worker)
+            worker.start()
+            logger.info("camera=%s hot-added to the running pipeline", camera.code)
 
 
 def _fixture_cameras(
@@ -382,29 +442,30 @@ def main(argv: list[str] | None = None) -> int:
             _dsn(), interval_s=float(cfg.get("anpr.watchlist_refresh_s", 60.0))
         )
 
-    for camera, source, zones in cameras:
-        pipeline.add_worker(
-            CameraWorker(
-                camera=camera,
-                source=source,
-                zones=zones,
-                ingest_cfg=IngestConfig.from_mapping(cfg.as_dict(), source),
-                evqm_cfg=EVQMConfig.from_mapping(cfg.as_dict()),
-                enhance_cfg=EnhanceConfig.from_mapping(cfg.as_dict()),
-                tracker_cfg=TrackerConfig.from_mapping(cfg.as_dict()),
-                rule_cfg=RuleConfig.from_mapping(cfg.as_dict()),
-                risk_cfg=RiskConfig.from_mapping(cfg.as_dict()),
-                debounce_cfg=DebounceConfig.from_mapping(cfg.as_dict()),
-                frame_queue=pipeline.frame_queue,
-                on_alert=on_alert,
-                on_tracks=live_tracks.publish,
-                clip_pre_roll_s=float(cfg.get("evidence.clip_pre_roll_s", 5.0)),
-                anpr_cfg=anpr_cfg,
-                anpr_reader=anpr_reader,
-                watchlist=watchlist,
-                plate_hmac_key=plate_hmac_key,
-            )
+    def build_worker(camera: CameraRuntime, source: str, zones: list[ZoneRuntime]) -> CameraWorker:
+        return CameraWorker(
+            camera=camera,
+            source=source,
+            zones=zones,
+            ingest_cfg=IngestConfig.from_mapping(cfg.as_dict(), source),
+            evqm_cfg=EVQMConfig.from_mapping(cfg.as_dict()),
+            enhance_cfg=EnhanceConfig.from_mapping(cfg.as_dict()),
+            tracker_cfg=TrackerConfig.from_mapping(cfg.as_dict()),
+            rule_cfg=RuleConfig.from_mapping(cfg.as_dict()),
+            risk_cfg=RiskConfig.from_mapping(cfg.as_dict()),
+            debounce_cfg=DebounceConfig.from_mapping(cfg.as_dict()),
+            frame_queue=pipeline.frame_queue,
+            on_alert=on_alert,
+            on_tracks=live_tracks.publish,
+            clip_pre_roll_s=float(cfg.get("evidence.clip_pre_roll_s", 5.0)),
+            anpr_cfg=anpr_cfg,
+            anpr_reader=anpr_reader,
+            watchlist=watchlist,
+            plate_hmac_key=plate_hmac_key,
         )
+
+    for camera, source, zones in cameras:
+        pipeline.add_worker(build_worker(camera, source, zones))
 
     stopping = {"flag": False}
 
@@ -419,6 +480,16 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, shutdown)
 
     pipeline.start()
+
+    reload_interval = float(cfg.get("runtime.camera_reload_interval_s", 5.0))
+    reload_thread = threading.Thread(
+        target=_camera_reload_loop,
+        args=(cfg, pipeline, build_worker, stopping, reload_interval),
+        name="camera-reload",
+        daemon=True,
+    )
+    reload_thread.start()
+
     logger.info(
         "READY — %d cameras, detector=%s, config_version=%s",
         len(cameras),

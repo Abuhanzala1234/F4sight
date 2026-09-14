@@ -9,10 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import httpx
+
 from ..db import get_db
 from ..models import AuditLog, Camera, Site, Zone
-from ..schemas import CameraOut, SiteOut, StreamOut, ZoneIn, ZoneOut
-from ..security import RequireAdmin, RequireViewer
+from ..schemas import CameraConnectIn, CameraOut, SiteOut, StreamOut, ZoneIn, ZoneOut
+from ..security import RequireAdmin, RequireOperator, RequireViewer
 from ..settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,100 @@ async def camera_stream(
         webrtc_url=f"http://{settings.mediamtx_host}:{settings.webrtc_port}/"
         f"{camera.mediamtx_path}/whep",
     )
+
+
+@router.post("/cameras/{camera_id}/connect", response_model=CameraOut)
+async def connect_camera(
+    camera_id: str,
+    payload: CameraConnectIn,
+    principal: RequireOperator,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Camera:
+    """Bind a camera slot to a live IP camera (e.g. a phone running 'IP
+    Webcam') by address alone — click a tile, type an IP, it is live.
+
+    No model or detector step is involved: the worker's detector is already
+    loaded once and shared across every camera (§7.4). This only wires up a
+    video source — it registers the RTSP pull on the already-running
+    MediaMTX instance via its control API (no restart, no YAML edit) and
+    flips the camera to enabled. The worker notices the newly-enabled camera
+    on its own periodic re-check of the camera table and hot-starts it
+    without a restart either.
+    """
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalar_one_or_none()
+    if camera is None:
+        raise HTTPException(404, f"camera {camera_id} not found")
+
+    source = f"rtsp://{payload.ip}:{payload.port}/{payload.path.lstrip('/')}"
+    mediamtx_api = f"http://{settings.mediamtx_host}:{settings.mediamtx_api_port}"
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            resp = await client.post(
+                f"{mediamtx_api}/v3/config/paths/replace/{camera.mediamtx_path}",
+                json={"source": source, "sourceProtocol": "tcp", "sourceOnDemand": False},
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, f"could not reach mediamtx: {exc}") from exc
+    if resp.status_code >= 300:
+        raise HTTPException(502, f"mediamtx rejected the camera source: {resp.text}")
+
+    camera.rtsp_url = f"rtsp://{settings.mediamtx_host}:{settings.rtsp_port}/{camera.mediamtx_path}"
+    camera.enabled = True
+    db.add(
+        AuditLog(
+            actor_id=principal.user_id,
+            action="camera.connect",
+            target_type="camera",
+            target_id=camera.id,
+            detail={"code": camera.code, "ip": payload.ip},
+        )
+    )
+    logger.info("camera=%s connected to ip=%s by=%s", camera.code, payload.ip, principal.user_id)
+    await db.flush()
+    return camera
+
+
+@router.post("/cameras/{camera_id}/disconnect", response_model=CameraOut)
+async def disconnect_camera(
+    camera_id: str,
+    principal: RequireOperator,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Camera:
+    """The reverse of ``connect_camera``: tear down the MediaMTX source and
+    flip the camera back to an empty slot. The worker's reload loop notices
+    within its next poll and stops that camera's threads -- no restart, and
+    no other camera is touched."""
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalar_one_or_none()
+    if camera is None:
+        raise HTTPException(404, f"camera {camera_id} not found")
+
+    mediamtx_api = f"http://{settings.mediamtx_host}:{settings.mediamtx_api_port}"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            await client.delete(f"{mediamtx_api}/v3/config/paths/delete/{camera.mediamtx_path}")
+        except httpx.HTTPError as exc:
+            # Best-effort: the camera row still gets marked disconnected even
+            # if MediaMTX is briefly unreachable -- an operator disconnecting
+            # a misbehaving camera should never be blocked by the media layer.
+            logger.warning("could not remove mediamtx path for camera=%s: %s", camera.code, exc)
+
+    camera.enabled = False
+    camera.rtsp_url = None
+    db.add(
+        AuditLog(
+            actor_id=principal.user_id,
+            action="camera.disconnect",
+            target_type="camera",
+            target_id=camera.id,
+            detail={"code": camera.code},
+        )
+    )
+    logger.info("camera=%s disconnected by=%s", camera.code, principal.user_id)
+    await db.flush()
+    return camera
 
 
 @router.get("/cameras/{camera_id}/zones", response_model=list[ZoneOut])

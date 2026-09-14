@@ -93,6 +93,17 @@ class StreamOut(BaseModel):
     note: str = "RTSP is not playable in a browser; use hls_url."
 
 
+class CameraConnectIn(BaseModel):
+    """Bind an existing camera slot to a live IP camera (e.g. a phone running
+    the 'IP Webcam' app). No model/detector step involved — this only wires
+    up the video source; the detector is already running and shared across
+    every camera."""
+
+    ip: str = Field(min_length=1, max_length=253)
+    port: int = Field(default=8080, ge=1, le=65535)
+    path: str = Field(default="h264_ulaw.sdp", max_length=128)
+
+
 class ZoneIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     kind: ZoneKind

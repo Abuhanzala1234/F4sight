@@ -50,21 +50,38 @@ It runs offline, on one machine, entirely on free and open-source parts. **No AP
 
 ## Quick start
 
-**Prerequisites:** Docker + Docker Compose, Python 3.11+, Node 20+.
+**Prerequisites:** Docker + Docker Compose (running), Python 3.11+, Node 20+.
 
 ```bash
 git clone <this repo> && cd f4sight
-
-make install     # python venv + npm install
-make up          # postgres + minio + redis + mediamtx
-make migrate     # create the schema
-make seed        # demo site, 3 cameras, zones, users, watchlist
-make models      # download the free model weights (~166 MB, once)
-make fixtures    # synthesise sample footage
-make demo        # worker + api + anchor, all together
+make demo
 ```
 
-Then open **http://localhost:8000/**. `make seed` prints the demo credentials.
+That's it — one command, on a bare clone, on any machine with the three
+prerequisites above. It installs the venv and npm dependencies, starts
+postgres/minio/redis/mediamtx, creates the schema, seeds a demo site with 4
+camera slots (3 running on bundled sample footage, 1 empty), downloads the
+free model weights (~166 MB, skipped on every run after the first), builds
+the dashboard, and starts the worker + API + ledger-anchor service together.
+Re-running it is safe and fast — every step is idempotent and skips work
+that is already done.
+
+Then open **http://localhost:8000/**. Demo credentials are printed at the
+end of the seed step (also re-printable with `make seed`).
+
+Want the steps individually instead (e.g. to only bring infra up, or to
+re-run just one stage)? `make demo`'s prerequisites and recipe are just
+`install`, `up`, `migrate`, `seed`, `models`, `fixtures`, and the dashboard
+build — each is its own target and safe to run on its own; see `make help`.
+
+### Bringing your own camera
+
+Once it's running, open the Live Wall — any empty slot (dashed border) can
+be bound to a live camera by clicking it and typing an IP address. Point a
+phone running the free **IP Webcam** app (Android) at it — same WiFi as this
+machine, screen unlocked — and it's live within a few seconds, no restart.
+Detection runs immediately: the model is already loaded once and shared
+across every camera, so adding one is pure plumbing, not an AI step.
 
 ### See it work with no infrastructure at all
 

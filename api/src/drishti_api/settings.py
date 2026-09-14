@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     mediamtx_host: str = "localhost"
     hls_port: int = 8888
     webrtc_port: int = 8889
+    rtsp_port: int = 8554
+    mediamtx_api_port: int = 9997
 
     # --- crypto ---
     jwt_secret: str = Field(default="dev_only_change_me")

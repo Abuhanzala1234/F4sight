@@ -109,6 +109,13 @@ export const api = {
   cameras: (siteId?: string) =>
     request<Camera[]>(`/cameras${siteId ? `?site_id=${encodeURIComponent(siteId)}` : ''}`),
   stream: (cameraId: string) => request<StreamInfo>(`/cameras/${cameraId}/stream`),
+  connectCamera: (cameraId: string, ip: string, port = 8080, path = 'h264_ulaw.sdp') =>
+    request<Camera>(`/cameras/${cameraId}/connect`, {
+      method: 'POST',
+      body: JSON.stringify({ ip, port, path }),
+    }),
+  disconnectCamera: (cameraId: string) =>
+    request<Camera>(`/cameras/${cameraId}/disconnect`, { method: 'POST' }),
   zones: (cameraId: string) => request<Zone[]>(`/cameras/${cameraId}/zones`),
 
   alerts: (params: Record<string, string> = {}) => {

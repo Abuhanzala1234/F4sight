@@ -499,6 +499,17 @@ class Pipeline:
     def add_worker(self, worker: CameraWorker) -> None:
         self.workers[worker.camera.camera_id] = worker
 
+    def remove_worker(self, camera_id: str, timeout_s: float = 5.0) -> None:
+        """Stop and drop one camera while the pipeline keeps running.
+
+        The counterpart to hot-adding (``add_worker`` + ``worker.start()``):
+        this is what lets a camera be disconnected from the UI without
+        touching any other camera or the shared inference thread.
+        """
+        worker = self.workers.pop(camera_id, None)
+        if worker is not None:
+            worker.stop(timeout_s)
+
     def start(self) -> None:
         self._stop.clear()
         self._infer_thread = threading.Thread(

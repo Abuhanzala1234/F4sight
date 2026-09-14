@@ -16,7 +16,11 @@ dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
     "PyYAML>=6.0",
-    "psycopg[binary]>=3.1",
+    # [pool] is not optional: sinks.py's PostgresSink imports psycopg_pool
+    # directly. Missing it doesn't fail loudly -- FanoutSink is fail-soft by
+    # design (P9), so every alert just spools to disk forever with a single
+    # WARN line easy to miss, while the dashboard silently shows zero alerts.
+    "psycopg[binary,pool]>=3.1",
     "redis>=5.0",
     "minio>=7.2",
     "structlog>=24.1",

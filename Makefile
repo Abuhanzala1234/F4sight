@@ -133,10 +133,10 @@ eval:  ## Run the evaluation set → metrics table
 
 # ---------------------------------------------------------------- demo
 .PHONY: demo
-demo: env up  ## THE DEMO-DAY COMMAND. Cold start, offline, everything.
+demo: env install up  ## THE DEMO-DAY COMMAND. Bare clone -> running app, one command.
 	@echo "── 1/6 migrations ──"      && $(MAKE) migrate
 	@echo "── 2/6 seed ──"            && $(MAKE) seed
-	@echo "── 3/6 verify models ──"   && $(BIN)/python scripts/fetch_models.py --verify-only
+	@echo "── 3/6 models (~166 MB, skipped if already present) ──" && $(MAKE) models
 	@echo "── 4/6 fixtures ──"        && $(MAKE) fixtures
 	@echo "── 5/6 dashboard build ──" && cd dashboard && npm run build
 	@echo "── 6/6 starting worker + api + anchor ──"

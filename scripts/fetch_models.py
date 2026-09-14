@@ -48,6 +48,13 @@ class Artefact:
     # Ultralytics ships .pt; we export to ONNX so the runtime is onnxruntime and
     # there is no torch dependency at inference time.
     export_onnx: bool = False
+    #: A pre-exported .onnx published alongside the .pt on the same release,
+    #: when one exists. Tried FIRST when export_onnx is set -- it turns a
+    #: ~1.5GB one-time `pip install ultralytics` (torch, for a build-time-only
+    #: export step) into a plain multi-MB download. Falls back to the .pt +
+    #: local export path (below) if this 404s or the release stops shipping
+    #: it, so this is a fast path, not a hard dependency.
+    onnx_url: str = ""
     #: Member of a downloaded archive to extract into ``path``. InsightFace
     #: publishes one zip of five models; we take only the two the spec uses and
     #: leave gender/age and the landmark nets on the floor, because §7.10 has no
@@ -62,6 +69,7 @@ ARTEFACTS: tuple[Artefact, ...] = (
         key="detector.yolo11n",
         path="models/detect/yolo11n.onnx",
         url="https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt",
+        onnx_url="https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx",
         licence="AGPL-3.0",
         purpose="person / vehicle / animal / bag detection (laptop profile)",
         export_onnx=True,
@@ -149,6 +157,9 @@ def fetch(artefact: Artefact, force: bool) -> tuple[bool, str]:
         return True, "present"
 
     if artefact.export_onnx:
+        if artefact.onnx_url and download(artefact.onnx_url, dest):
+            return True, "downloaded (pre-exported onnx, no torch needed)"
+
         pt = dest.with_suffix(".pt")
         if (not pt.exists() or force) and not download(artefact.url, pt):
             return False, "download failed"

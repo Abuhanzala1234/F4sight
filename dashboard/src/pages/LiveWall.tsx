@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Camera } from '@/types';
 import { api } from '@/lib/api';
 import { CameraTile } from '@/components/CameraTile';
+import { ConnectCameraModal } from '@/components/ConnectCameraModal';
 import { Empty, Panel } from '@/components/Primitives';
 
 const LAYOUTS = [1, 4, 9, 16] as const;
@@ -10,6 +11,23 @@ export function LiveWall() {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [layout, setLayout] = useState<(typeof LAYOUTS)[number]>(4);
   const [error, setError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<Camera | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function disconnect(camera: Camera) {
+    if (disconnecting) return;
+    setDisconnecting(camera.id);
+    setActionError(null);
+    try {
+      const updated = await api.disconnectCamera(camera.id);
+      setCameras((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'disconnect failed');
+    } finally {
+      setDisconnecting(null);
+    }
+  }
 
   useEffect(() => {
     api
@@ -54,17 +72,39 @@ export function LiveWall() {
             style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
           >
             {visible.map((camera) => (
-              <CameraTile key={camera.id} camera={camera} />
+              <CameraTile
+                key={camera.id}
+                camera={camera}
+                onConnect={() => setConnecting(camera)}
+                onDisconnect={camera.enabled ? () => void disconnect(camera) : undefined}
+              />
             ))}
           </div>
         )}
       </Panel>
+
+      {actionError && (
+        <p className="border border-alarm/50 bg-alarm/10 px-3 py-2 font-mono text-2xs text-alarm">
+          {actionError}
+        </p>
+      )}
 
       <p className="hazard border border-rule px-3 py-2 font-mono text-2xs leading-relaxed text-dim">
         <span className="text-signal">NO AUTOMATED RESPONSE.</span> This system recommends; a
         human adjudicates every alert (Principle P7). Recording continues independently of
         analytics — if the AI stops, the video does not (P8).
       </p>
+
+      {connecting && (
+        <ConnectCameraModal
+          camera={connecting}
+          onClose={() => setConnecting(null)}
+          onConnected={(updated) => {
+            setCameras((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+            setConnecting(null);
+          }}
+        />
+      )}
     </div>
   );
 }

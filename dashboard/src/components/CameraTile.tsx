@@ -12,12 +12,26 @@ import { DetectionOverlay } from './DetectionOverlay';
  * and that surprises people on demo day (blocker #4). Safari plays HLS
  * natively; everything else needs hls.js.
  */
-export function CameraTile({ camera, onSelect }: { camera: Camera; onSelect?: () => void }) {
+export function CameraTile({
+  camera,
+  onSelect,
+  onConnect,
+  onDisconnect,
+}: {
+  camera: Camera;
+  onSelect?: () => void;
+  /** Slot has no live source bound yet — clicking it should ask for an IP
+   * instead of trying (and failing) to open a stream. */
+  onConnect?: () => void;
+  /** Bound camera — tear it back down to an empty slot. */
+  onDisconnect?: () => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [state, setState] = useState<'connecting' | 'live' | 'down'>('connecting');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!camera.enabled) return undefined;
     let hls: Hls | null = null;
     let cancelled = false;
 
@@ -70,14 +84,51 @@ export function CameraTile({ camera, onSelect }: { camera: Camera; onSelect?: ()
       cancelled = true;
       hls?.destroy();
     };
-  }, [camera.id]);
+  }, [camera.id, camera.enabled]);
+
+  if (!camera.enabled) {
+    return (
+      <button
+        type="button"
+        onClick={onConnect}
+        className="group relative flex aspect-video flex-col items-center justify-center gap-2
+                   border border-dashed border-rule2 bg-panel/40 text-dim transition-colors
+                   hover:border-signal hover:text-signal"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-7 w-7">
+          <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.6l1-1.6A1.5 1.5 0 0 1 9.4 4.7h5.2a1.5 1.5 0 0 1 1.3.7l1 1.6h2.6A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-9Z" />
+          <circle cx="12" cy="13" r="3.6" />
+          <path d="M12 11v4M10 13h4" />
+        </svg>
+        <span className="font-mono text-2xs uppercase tracking-[0.16em]">Connect camera</span>
+        <span className="font-mono text-2xs text-dim/70">{camera.code}</span>
+      </button>
+    );
+  }
 
   return (
-    <button
-      type="button"
+    <div
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
       onClick={onSelect}
       className="panel group relative aspect-video overflow-hidden text-left transition-colors hover:border-signal/60"
     >
+      {onDisconnect && (
+        <button
+          type="button"
+          title="Disconnect camera"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDisconnect();
+          }}
+          className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center
+                     border border-rule2 bg-void/80 font-mono text-2xs text-dim opacity-0
+                     transition-opacity hover:border-alarm hover:text-alarm group-hover:opacity-100"
+        >
+          ✕
+        </button>
+      )}
+
       <video
         ref={videoRef}
         muted
@@ -110,6 +161,6 @@ export function CameraTile({ camera, onSelect }: { camera: Camera; onSelect?: ()
           {camera.analytics_fps.toFixed(0)} fps
         </span>
       </div>
-    </button>
+    </div>
   );
 }
