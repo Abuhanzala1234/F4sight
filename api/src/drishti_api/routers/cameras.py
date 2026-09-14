@@ -87,21 +87,46 @@ async def connect_camera(
     if camera is None:
         raise HTTPException(404, f"camera {camera_id} not found")
 
+    # The three seeded demo cameras sit on `fixture-*` paths that the
+    # `fixture-streamer` sidecar (docker-compose.yml) publishes into forever,
+    # on a 2s retry loop, with no awareness of this camera's enabled state.
+    # Repurposing that same path for a real camera loses the race against
+    # that sidecar every time -- the tile keeps showing the dummy footage no
+    # matter what source this call configures. Give a real camera its own
+    # path instead of fighting over a fixture one.
+    target_path = camera.mediamtx_path
+    if target_path.startswith("fixture-"):
+        target_path = f"live-{camera.code.lower()}"
+
     source = f"rtsp://{payload.ip}:{payload.port}/{payload.path.lstrip('/')}"
     mediamtx_api = f"http://{settings.mediamtx_host}:{settings.mediamtx_api_port}"
 
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.post(
-                f"{mediamtx_api}/v3/config/paths/replace/{camera.mediamtx_path}",
-                json={"source": source, "sourceProtocol": "tcp", "sourceOnDemand": False},
+                f"{mediamtx_api}/v3/config/paths/replace/{target_path}",
+                json={"source": source, "rtspTransport": "tcp", "sourceOnDemand": False},
             )
         except httpx.HTTPError as exc:
             raise HTTPException(502, f"could not reach mediamtx: {exc}") from exc
+    if resp.status_code == 401:
+        # MediaMTX's default authInternalUsers scopes unauthenticated `api`
+        # access to 127.0.0.1/::1 only. That "localhost" is MediaMTX's own
+        # loopback, not this API container's -- a cross-container call is
+        # never that address, so this 401 fires every time regardless of the
+        # camera's IP. See infra/mediamtx.yml (authInternalUsers override).
+        raise HTTPException(
+            502,
+            "mediamtx refused the control-API call (401) -- its API is only open to "
+            "127.0.0.1 by default and this call comes from another container. "
+            "Add an authInternalUsers entry (or authMethod: none) for the api action "
+            "in infra/mediamtx.yml.",
+        )
     if resp.status_code >= 300:
         raise HTTPException(502, f"mediamtx rejected the camera source: {resp.text}")
 
-    camera.rtsp_url = f"rtsp://{settings.mediamtx_host}:{settings.rtsp_port}/{camera.mediamtx_path}"
+    camera.mediamtx_path = target_path
+    camera.rtsp_url = f"rtsp://{settings.mediamtx_host}:{settings.rtsp_port}/{target_path}"
     camera.enabled = True
     db.add(
         AuditLog(

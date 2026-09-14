@@ -42,6 +42,7 @@ CAMERAS: list[dict[str, Any]] = [
         "code": "CAM-01",
         "name": "Main gate approach",
         "mediamtx_path": "fixture-intrusion",
+        "empty": True,
         "zones": [
             {
                 "name": "Perimeter line",
@@ -74,6 +75,7 @@ CAMERAS: list[dict[str, Any]] = [
         "code": "CAM-02",
         "name": "North fence line",
         "mediamtx_path": "fixture-night",
+        "empty": True,
         "zones": [
             {
                 "name": "Fence tripwire",
@@ -100,6 +102,7 @@ CAMERAS: list[dict[str, Any]] = [
         "code": "CAM-03",
         "name": "Vehicle checkpoint",
         "mediamtx_path": "fixture-vehicle",
+        "empty": True,
         "zones": [
             {
                 "name": "Inspection bay",

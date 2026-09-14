@@ -34,54 +34,97 @@ export function CameraTile({
     if (!camera.enabled) return undefined;
     let hls: Hls | null = null;
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
 
-    void (async () => {
-      try {
-        const info = await api.stream(camera.id);
-        if (cancelled || !videoRef.current) return;
-        const video = videoRef.current;
+    // A camera that was just connected (ConnectCameraModal) has its row
+    // flipped to enabled the moment MediaMTX *accepts* the source -- MediaMTX
+    // still needs a beat to actually finish the RTSP handshake with the
+    // camera and start producing segments. Landing here before that beat
+    // gets a 404 on the manifest / an empty first HLS response, which used
+    // to be treated as fatal and left the tile on "stream unavailable"
+    // forever with no way to recover short of a full page reload. Retry with
+    // backoff for a while first; only give up and show 'down' once the
+    // stream has had a real chance to come up.
+    const MAX_ATTEMPTS = 6;
+    const RETRY_DELAY_MS = 2500;
 
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          // Native HLS (Safari, and some current Chrome builds). Wait for the
-          // browser to actually confirm playable media before calling this
-          // 'live' -- setting .src succeeds even when nothing is published at
-          // that MediaMTX path, and a green dot over a blank tile is worse
-          // than a slow one: it teaches an operator to trust a dead camera.
-          video.src = info.hls_url;
-          video.addEventListener('loadedmetadata', () => setState('live'), { once: true });
-          video.addEventListener(
-            'error',
-            () => {
-              setState('down');
-              setError('stream unavailable');
-            },
-            { once: true },
-          );
-        } else if (Hls.isSupported()) {
-          hls = new Hls({ lowLatencyMode: true, backBufferLength: 10, maxBufferLength: 6 });
-          hls.loadSource(info.hls_url);
-          hls.attachMedia(video);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => setState('live'));
-          hls.on(Hls.Events.ERROR, (_e, data) => {
-            if (data.fatal) {
-              setState('down');
-              setError(data.details);
-            }
-          });
-        } else {
-          setState('down');
-          setError('HLS unsupported in this browser');
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setState('down');
-          setError(err instanceof Error ? err.message : 'stream unavailable');
-        }
+    function fail(message: string) {
+      if (cancelled) return;
+      attempt += 1;
+      if (attempt < MAX_ATTEMPTS) {
+        retryTimer = setTimeout(connect, RETRY_DELAY_MS);
+      } else {
+        setState('down');
+        setError(message);
       }
-    })();
+    }
+
+    function connect() {
+      if (cancelled) return;
+      hls?.destroy();
+      hls = null;
+      void (async () => {
+        try {
+          const info = await api.stream(camera.id);
+          if (cancelled || !videoRef.current) return;
+          const video = videoRef.current;
+
+          if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS (Safari, and some current Chrome builds). Wait for
+            // the browser to actually confirm playable media before calling
+            // this 'live' -- setting .src succeeds even when nothing is
+            // published at that MediaMTX path, and a green dot over a blank
+            // tile is worse than a slow one: it teaches an operator to trust
+            // a dead camera.
+            video.src = info.hls_url;
+            video.addEventListener(
+              'loadedmetadata',
+              () => {
+                if (!cancelled) setState('live');
+              },
+              { once: true },
+            );
+            video.addEventListener('error', () => fail('stream unavailable'), { once: true });
+          } else if (Hls.isSupported()) {
+            hls = new Hls({
+              lowLatencyMode: true,
+              backBufferLength: 10,
+              maxBufferLength: 6,
+              // Defaults target ~3 segments behind the live edge -- fine for
+              // a VOD-style safety margin, but on a live security feed it
+              // reads as several extra seconds of lag on top of whatever the
+              // network is already adding. Hug the edge instead, and let it
+              // catch up fast (up to 5x speed, capped once within half a
+              // second of live) rather than settling into a steady-state
+              // delay after any rebuffer.
+              liveSyncDurationCount: 1,
+              liveMaxLatencyDurationCount: 3,
+              maxLiveSyncPlaybackRate: 5,
+            });
+            hls.loadSource(info.hls_url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              if (!cancelled) setState('live');
+            });
+            hls.on(Hls.Events.ERROR, (_e, data) => {
+              if (data.fatal) fail(data.details);
+            });
+          } else {
+            setState('down');
+            setError('HLS unsupported in this browser');
+          }
+        } catch (err) {
+          fail(err instanceof Error ? err.message : 'stream unavailable');
+        }
+      })();
+    }
+
+    connect();
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       hls?.destroy();
     };
   }, [camera.id, camera.enabled]);

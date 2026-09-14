@@ -103,6 +103,24 @@ class CameraConnectIn(BaseModel):
     port: int = Field(default=8080, ge=1, le=65535)
     path: str = Field(default="h264_ulaw.sdp", max_length=128)
 
+    @field_validator("ip")
+    @classmethod
+    def _no_embedded_port(cls, value: str) -> str:
+        """A pasted `192.168.1.12:8080` (people copy the IP Webcam app's own
+        on-screen address, port included) must not reach connect_camera as-is:
+        the port field defaults to 8080 too, so the RTSP source built from
+        both becomes `192.168.1.12:8080:8080` -- a hostname MediaMTX can't
+        resolve, which fails as a silent 'no signal' tile with no obvious
+        cause. Reject it here with a message pointing at the actual mistake,
+        rather than letting a broken URL through to MediaMTX."""
+        host = value.strip()
+        if host.count(":") == 1 and not host.startswith("["):
+            raise ValueError(
+                f"'{host}' looks like host:port -- put only the IP address here "
+                "and the port in the Port field below."
+            )
+        return host
+
 
 class ZoneIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)

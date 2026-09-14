@@ -23,6 +23,24 @@ export function ConnectCameraModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** People paste the address straight off the IP Webcam app's screen, which
+   * shows it as `192.168.1.12:8080` -- port included. The Port field below
+   * already defaults to 8080, so without this the two concatenate into
+   * `192.168.1.12:8080:8080`, a host MediaMTX can't resolve, and the tile
+   * just sits on "no signal" with no clue why. Split it back apart instead
+   * of making that a trap. */
+  function handleIpChange(value: string) {
+    const match = /^([^:]+):(\d{1,5})$/.exec(value.trim());
+    // noUncheckedIndexedAccess types every element as possibly undefined, but
+    // a successful match against this pattern always populates both groups.
+    if (match && match[1] !== undefined && match[2] !== undefined) {
+      setIp(match[1]);
+      setPort(match[2]);
+    } else {
+      setIp(value);
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -74,7 +92,7 @@ export function ConnectCameraModal({
               placeholder="192.168.1.23"
               value={ip}
               autoFocus
-              onChange={(e) => setIp(e.target.value)}
+              onChange={(e) => handleIpChange(e.target.value)}
               required
             />
           </div>

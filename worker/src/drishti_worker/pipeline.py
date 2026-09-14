@@ -621,7 +621,7 @@ class Pipeline:
         ):
             # THE INVARIANT: map to original-frame coordinates here, once, before
             # anything downstream can see a model-space box.
-            detections = self._to_detections(raws, transform)
+            detections = self._to_detections(raws, transform, frame.width, frame.height)
             try:
                 worker.submit_detections(
                     DetBundle(
@@ -639,7 +639,13 @@ class Pipeline:
                     worker.camera.code,
                 )
 
-    def _to_detections(self, raws: Sequence[Any], transform: FrameTransform) -> list[Detection]:
+    def _to_detections(
+        self,
+        raws: Sequence[Any],
+        transform: FrameTransform,
+        frame_w: float | None = None,
+        frame_h: float | None = None,
+    ) -> list[Detection]:
         cfg = self.detector_cfg
         out: list[Detection] = []
         for raw in raws:
@@ -650,6 +656,20 @@ class Pipeline:
             if raw.conf < cfg.threshold_for(cls):
                 continue
             box = transform.to_original(raw.box)
+            if frame_w is not None and frame_h is not None:
+                # A regression head can legitimately overshoot the letterboxed
+                # canvas (the model has no notion of "edge of frame"); mapped
+                # back through 1/scale that overshoot is magnified and can land
+                # well outside the real frame. Nothing downstream clips it, so
+                # an unclamped box lands off-canvas in the live overlay and
+                # skews the foot-point zone/tripwire checks. This is the last
+                # point that knows both the box and the original frame size.
+                box = (
+                    max(0.0, min(box[0], frame_w)),
+                    max(0.0, min(box[1], frame_h)),
+                    max(0.0, min(box[2], frame_w)),
+                    max(0.0, min(box[3], frame_h)),
+                )
             width, height = box[2] - box[0], box[3] - box[1]
             if height < cfg.min_box_height_px or width * height < cfg.min_box_area_px:
                 continue  # at range this is noise, not an object

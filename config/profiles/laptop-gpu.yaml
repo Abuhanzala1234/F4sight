@@ -1,0 +1,30 @@
+# `laptop-gpu` — same model/input size as `laptop` (yolo11n, 480x480), but
+# tries CUDA before CPU. Split out from `laptop` rather than editing it in
+# place: `laptop` is the universally-safe default ("must work on macOS/arm64",
+# its own comment says so) and `make demo` depends on that staying CPU-only
+# for machines with no NVIDIA GPU. This profile is for a machine that has
+# both a CUDA-capable GPU and `onnxruntime-gpu[cuda,cudnn]` installed
+# (`.venv/bin/pip install 'onnxruntime-gpu[cuda,cudnn]'`) -- the provider
+# chain falls back to CPU on its own if either isn't there, so picking this
+# profile is always safe, just not always faster.
+runtime:
+  profile: laptop-gpu
+ingest:
+  # `laptop`'s 6.0 fps was sized for CPU inference (~34ms/frame). GPU
+  # inference measures ~14.5ms/frame on this model -- real headroom for a
+  # higher analytics rate, so this isn't left at the CPU number.
+  analytics_fps: 12.0
+detector:
+  model: yolo11n
+  weights: models/detect/yolo11n.onnx
+  input_size: [480, 480]
+  # fp16 is only wired through to TensorRT (trt_fp16_enable) -- CUDAExecutionProvider
+  # gets no such option from this codebase, so setting this true here would just
+  # misreport fp16=True in the startup log while actually still running FP32.
+  fp16: false
+  batching: {max_batch: 4, max_wait_ms: 15}
+  providers: [CUDAExecutionProvider, CPUExecutionProvider]
+pipeline:
+  clip_writer_threads: 1
+evidence:
+  clip_fps: 8
