@@ -1,0 +1,69 @@
+# Hand-signal recognition (§7.7). Second stage, like ANPR: fed by crops of
+# person tracks, so it costs nothing when disabled and nothing when nobody is
+# being tracked. The primary detector's hot path is untouched either way.
+gestures:
+  enabled: true
+  weights: models/pose/yolo11n-pose.onnx
+  input_size: [640, 640]
+
+  classes: [person]               # which of our own taxonomy's classes get cropped
+  min_person_conf: 0.40           # pose model's own score for "there is a person here"
+  min_keypoint_conf: 0.35         # below this a joint counts as NOT SEEN, never guessed
+
+  # Cost control, and these numbers are measured rather than guessed.
+  # yolo11n-pose at 640x640 costs ~43 ms per crop on the ORT CPU provider
+  # (Ryzen laptop, the same box as docs/BENCH.md). The laptop profile's 6 fps
+  # gives a 166 ms frame budget for everything, so an unbounded crop count
+  # would eat it whole: two crops every third frame amortises to ~29 ms/frame,
+  # about 17% of the budget, which leaves detection its room.
+  #
+  # A gesture is a posture held over a second or two, not a per-frame property,
+  # so sampling costs nothing in accuracy. At 6 fps this still looks at each
+  # person twice a second; with voting below, a signal settles in ~2 s of
+  # being genuinely held -- which is the point.
+  #
+  # On CUDA this is ~4x cheaper; raise both if you have the GPU (bop profile).
+  every_n_frames: 3
+  max_tracks_per_frame: 2
+
+  # Multi-frame voting is MANDATORY here for the same reason it is in ANPR: a
+  # single frame is an opinion. An arm passes through "raised" in the middle of
+  # an ordinary stride, and a classifier that fires on one frame reports every
+  # walking person as signalling.
+  voting:
+    min_frames_agreed: 4
+    window_frames: 8
+
+  # Geometry thresholds, all in multiples of the subject's OWN torso length --
+  # never pixels. A pixel threshold works at exactly one distance from the
+  # camera and silently fails at every other one.
+  thresholds:
+    raise_margin: 0.15            # wrist above shoulder by this much = "raised"
+    level_tolerance: 0.25         # how far off shoulder height a point may sit
+    extend_ratio: 0.85            # how far the wrist must reach from the shoulder
+    straight_tolerance: 0.30      # elbow's distance off the shoulder->wrist line
+
+  # Cheap "has this crop actually changed" gate in front of the model
+  # (activity.py). Comparing 32x32 thumbnails costs microseconds against the
+  # ~33 ms a model call costs, so skipping even a third of calls pays for
+  # itself many times over.
+  #
+  # THREE GUARDS, and none of them are optional:
+  #   - a confirmed state is never cleared by stillness (an armed person who
+  #     stops moving is still armed)
+  #   - the heartbeat runs the model anyway past max_stale_frames, so noise or
+  #     a badly-set threshold cannot freeze a track forever
+  #   - min_runs_before_skip defaults to this model's voting window, because a
+  #     gate that skips before the vote settles means a MOTIONLESS ARMED PERSON
+  #     NEVER ALERTS. That one was found by a test; do not lower it.
+  #
+  # MEASURED SAVING, both ends of the range, so nobody oversells this:
+  #   crowded street footage (MOT16, people constantly moving) ->  15% skipped
+  #   idle camera, subject standing still                      ->  97% skipped
+  # The gate is worth most exactly where this system lives: a fence line where
+  # nothing happens for hours. On a busy scene it saves little and costs
+  # ~0.9 ms/crop against a ~33 ms model call, so it never loses money.
+  activity_gate:
+    enabled: true
+    diff_threshold: 0.02          # mean abs pixel difference, normalised 0..1
+    max_stale_frames: 60          # heartbeat: ~10 s at 6 fps

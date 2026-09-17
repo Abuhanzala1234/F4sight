@@ -1,0 +1,79 @@
+# Weapon detection (§7.7). Second stage, like gestures and ANPR: fed by crops
+# of person tracks, so it costs nothing when disabled and nothing when nobody
+# is being tracked. The primary detector's hot path is untouched either way.
+#
+# THIS IS THE HIGHEST FALSE-POSITIVE RISK IN THE SYSTEM. At CCTV distance a
+# phone, an umbrella, a walking stick and a farm tool all occupy about the same
+# pixels as a pistol. Every number below is set to protect against that, and
+# loosening them is a decision to be made deliberately, not by accident.
+weapons:
+  enabled: true
+  weights: models/weapon/weapon-yolov8.onnx
+  input_size: [640, 640]
+
+  classes: [person]               # which of our own taxonomy's classes get cropped
+
+  # MEASURED, not guessed. Swept against 427 person crops from 17 real tracked
+  # pedestrians in eval/clips (MOT16), scoring how many TRACKS would have raised
+  # an armed-person alert after voting -- per-crop rate is the wrong number,
+  # because the pipeline never alerts on a single crop and because false
+  # positives are correlated: a bag the model reads as a pistol reads that way
+  # on every frame of that track.
+  #
+  #   min_conf | crop FP | track FP | real knife still detected
+  #   ---------|---------|----------|--------------------------
+  #     0.55   |   4.0%  |  11.8%   | yes          <- 2 of 17 innocent people!
+  #     0.65   |   1.9%  |   5.9%   | yes
+  #     0.75   |   0.0%  |   0.0%   | yes (0.792)  <- chosen
+  #     0.85   |   0.0%  |   0.0%   | NO, lost
+  #
+  # 0.75 is the only setting with no false alarms that still catches the
+  # weapon. Note the margin is thin -- the true positive scores 0.792 against a
+  # 0.75 floor -- so a partially-occluded weapon will fall under it. That is the
+  # deliberate trade: on a border wall, an alert that cries wolf costs more than
+  # a missed knife that the zone and tripwire rules would catch anyway. Widening
+  # this needs more test footage, not a bolder number.
+  min_conf: 0.75
+  nms_iou: 0.45
+
+  # Cost control, same measured reasoning as gestures: ~12 MB YOLOv8n model,
+  # comparable per-crop cost to the pose model (~40 ms on the ORT CPU provider).
+  # Two crops every third frame keeps this inside the laptop profile's budget.
+  every_n_frames: 3
+  max_tracks_per_frame: 2
+
+  # Multi-frame voting is MANDATORY. A weapon that appears for a single frame
+  # is a misread, not an arrest.
+  #
+  # NOTE: voting is on ARMED / not-armed, NOT on which weapon. Gun-vs-knife
+  # plurality would tie and never settle on a person the model keeps
+  # reclassifying between the two -- and somebody the model cannot decide is
+  # holding a gun or a knife is still, unambiguously, holding something.
+  voting:
+    min_frames_agreed: 3
+    window_frames: 8
+
+  # Cheap "has this crop actually changed" gate in front of the model
+  # (activity.py). Comparing 32x32 thumbnails costs microseconds against the
+  # ~33 ms a model call costs, so skipping even a third of calls pays for
+  # itself many times over.
+  #
+  # THREE GUARDS, and none of them are optional:
+  #   - a confirmed state is never cleared by stillness (an armed person who
+  #     stops moving is still armed)
+  #   - the heartbeat runs the model anyway past max_stale_frames, so noise or
+  #     a badly-set threshold cannot freeze a track forever
+  #   - min_runs_before_skip defaults to this model's voting window, because a
+  #     gate that skips before the vote settles means a MOTIONLESS ARMED PERSON
+  #     NEVER ALERTS. That one was found by a test; do not lower it.
+  #
+  # MEASURED SAVING, both ends of the range, so nobody oversells this:
+  #   crowded street footage (MOT16, people constantly moving) ->  15% skipped
+  #   idle camera, subject standing still                      ->  97% skipped
+  # The gate is worth most exactly where this system lives: a fence line where
+  # nothing happens for hours. On a busy scene it saves little and costs
+  # ~0.9 ms/crop against a ~33 ms model call, so it never loses money.
+  activity_gate:
+    enabled: true
+    diff_threshold: 0.02          # mean abs pixel difference, normalised 0..1
+    max_stale_frames: 60          # heartbeat: ~10 s at 6 fps
