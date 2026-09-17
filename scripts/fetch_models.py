@@ -84,6 +84,39 @@ ARTEFACTS: tuple[Artefact, ...] = (
         optional=True,
     ),
     Artefact(
+        key="pose.yolo11n",
+        path="models/pose/yolo11n-pose.onnx",
+        url="https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-pose.pt",
+        onnx_url=(
+            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-pose.onnx"
+        ),
+        licence="AGPL-3.0",
+        purpose="17-keypoint body pose for hand signals (§7.7) — second stage, crop-fed",
+        export_onnx=True,
+        optional=True,
+    ),
+    Artefact(
+        key="weapon.yolov8n",
+        path="models/weapon/weapon-yolov8.onnx",
+        # This project fine-tuned the stock model below on ~5k real gun/knife
+        # images (ari-dasci/OD-WeaponDetection) and committed the result
+        # directly (see the .gitignore exception) -- it is no longer a plain
+        # third-party download, so `fetch()` will find it already present and
+        # leave it alone. This URL is kept only as the pre-fine-tune fallback
+        # for `--force`; running --force here silently REPLACES the fine-tuned
+        # weights with the weaker stock ones (measured: knife detection mean
+        # confidence 0.50 -> 0.77 after fine-tuning, at unchanged 0% false
+        # positive rate on tracked MOT16 pedestrians). Don't --force this one.
+        url=(
+            "https://github.com/JoaoAssalim/Weapons-and-Knives-Detector-with-YOLOv8"
+            "/raw/main/models/normal.onnx"
+        ),
+        licence="AGPL-3.0 (Ultralytics YOLOv8 derivative)",
+        purpose="weapon detection on person crops (§7.7) — second stage, crop-fed",
+        optional=True,
+        notes="fine-tuned in-house on ari-dasci/OD-WeaponDetection; do not --force",
+    ),
+    Artefact(
         key="face.detect",
         path="models/face/scrfd_500m.onnx",
         url="https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip",
@@ -225,7 +258,7 @@ def build_manifest() -> dict[str, object]:
                 }
             )
     return {
-        "schema": "drishti.models/v1",
+        "schema": "ibvap.models/v1",
         "note": (
             "Every model here is free to download and run locally, with no account, "
             "no API key and no metered call. See docs/MODELS.md."
@@ -277,7 +310,7 @@ def main() -> int:
         return verify_only()
 
     MODELS_DIR.mkdir(exist_ok=True)
-    print("DRISHTI-BOP model fetch — every file below is free. See docs/MODELS.md.\n")
+    print("IBVAP model fetch — every file below is free. See docs/MODELS.md.\n")
 
     failed_required = []
     for artefact in ARTEFACTS:

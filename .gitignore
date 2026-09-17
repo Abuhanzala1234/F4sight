@@ -4,8 +4,19 @@
 *.key
 
 # Models: free to download, too big to track. `make models` fetches them.
-models/
+models/*
 !models/.gitkeep
+
+# Exception: this weapon model is fine-tuned on our own dataset, not a
+# third-party download `make models` can re-fetch. Tracked deliberately so a
+# fresh clone gets the trained weights, not the weaker stock model.
+# (models/MANIFEST.json stays ignored -- `make models` regenerates it
+# whenever any artefact, fetched or tracked, changes on disk. Un-ignoring a
+# file inside an ignored directory also requires un-ignoring the directory
+# entry itself, or git never descends far enough to see the file.)
+!models/weapon/
+models/weapon/*
+!models/weapon/weapon-yolov8.onnx
 
 # Media
 recordings/
