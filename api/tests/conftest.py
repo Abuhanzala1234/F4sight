@@ -22,9 +22,9 @@ sys.path.insert(0, str(ROOT / "worker" / "src"))
 
 from fastapi.testclient import TestClient
 
-from drishti_api.main import app
-from drishti_api.security import create_token
-from drishti_api.settings import get_settings
+from ibvap_api.main import app
+from ibvap_api.security import create_token
+from ibvap_api.settings import get_settings
 
 
 @pytest.fixture

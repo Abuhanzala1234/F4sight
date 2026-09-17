@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from drishti_worker.config import (
+from ibvap_worker.config import (
     AppConfig,
     apply_env_overrides,
     config_version,
@@ -33,11 +33,11 @@ class TestMerge:
 
 class TestEnvOverrides:
     def test_double_underscore_separates_levels(self):
-        out = apply_env_overrides({}, {"DRISHTI__RULES__LOITER__SECONDS": "45"})
+        out = apply_env_overrides({}, {"IBVAP__RULES__LOITER__SECONDS": "45"})
         assert out["rules"]["loiter"]["seconds"] == 45
 
     def test_single_underscore_survives_in_key_names(self):
-        out = apply_env_overrides({}, {"DRISHTI__INGEST__ANALYTICS_FPS": "12"})
+        out = apply_env_overrides({}, {"IBVAP__INGEST__ANALYTICS_FPS": "12"})
         assert out["ingest"]["analytics_fps"] == 12
 
     @pytest.mark.parametrize(
@@ -53,7 +53,7 @@ class TestEnvOverrides:
         ],
     )
     def test_scalar_coercion(self, raw, expected):
-        out = apply_env_overrides({}, {"DRISHTI__K": raw})
+        out = apply_env_overrides({}, {"IBVAP__K": raw})
         assert out["k"] == expected
 
     def test_unprefixed_variables_are_ignored(self):

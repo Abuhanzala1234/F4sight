@@ -30,10 +30,10 @@ __all__ = ["FabricLedger"]
 
 
 class FabricLedger:
-    """Anchors Merkle roots to the ``evidencecc`` chaincode on channel ``drishti``."""
+    """Anchors Merkle roots to the ``evidencecc`` chaincode on channel ``ibvap``."""
 
     def __init__(self, cfg: Mapping[str, Any]) -> None:
-        self.channel = str(cfg.get("channel", "drishti"))
+        self.channel = str(cfg.get("channel", "ibvap"))
         self.chaincode = str(cfg.get("chaincode", "evidencecc"))
         self.msp_id = str(cfg.get("msp_id", "Org1MSP"))
         self.peer_endpoint = str(cfg.get("peer_endpoint", "localhost:7051"))

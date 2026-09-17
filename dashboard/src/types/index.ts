@@ -1,4 +1,4 @@
-/** Mirrors the API schemas in api/src/drishti_api/schemas.py (BUILD_SPEC §8, §9). */
+/** Mirrors the API schemas in api/src/ibvap_api/schemas.py (BUILD_SPEC §8, §9). */
 
 export type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical';
 export type AlertStatus = 'raised' | 'acknowledged' | 'adjudicated';
@@ -176,10 +176,17 @@ export interface LiveTrack {
   speed_px_s: number;
 }
 
-/** `/ws/live/{camera_id}` message: one frame's worth of real tracks. */
+/** `/ws/live/{camera_id}` message: one frame's worth of real tracks.
+ *
+ * `frame_w`/`frame_h` are the true pixel size of the frame the boxes were
+ * measured in. Always prefer them over the camera row's `resolution_w/h`,
+ * which is a static seed-time guess and wrong for any camera that negotiated
+ * a different size. Optional only because an older worker may not send them. */
 export interface LiveTrackFrame {
   type: 'tracks';
   camera_id: string;
   ts: string;
   tracks: LiveTrack[];
+  frame_w?: number;
+  frame_h?: number;
 }

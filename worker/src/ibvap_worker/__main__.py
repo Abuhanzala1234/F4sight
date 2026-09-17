@@ -23,6 +23,7 @@ import signal
 import sys
 import threading
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -32,6 +33,8 @@ from .config import AppConfig, load_config
 from .detect import DetectorConfig, build_detector
 from .enhance import EnhanceConfig
 from .evqm import EVQMConfig
+from .faces import FaceConfig
+from .gesture import GestureConfig
 from .ingest import IngestConfig
 from .logsetup import configure_logging
 from .pipeline import CameraWorker, Pipeline
@@ -39,6 +42,7 @@ from .risk import RiskConfig
 from .rules import DebounceConfig, RuleConfig
 from .sinks import (
     FanoutSink,
+    HealthPublisher,
     LiveTrackPublisher,
     MinioSink,
     NullSink,
@@ -48,7 +52,8 @@ from .sinks import (
 )
 from .track import TrackerConfig
 from .types import Calibration, CameraRuntime, ZoneKind, ZoneRuntime
-from .watchlist import WatchlistCache
+from .watchlist import FaceWatchlistCache, WatchlistCache
+from .weapon import WeaponConfig
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +206,7 @@ def _camera_reload_loop(
     This is what makes "click a tile, type an IP, it's live" -- and
     "disconnect it" -- true: the API just flips a row's ``enabled`` bit and
     registers/removes the RTSP source on MediaMTX (see
-    ``drishti_api.routers.cameras.connect_camera`` / ``disconnect_camera``);
+    ``ibvap_api.routers.cameras.connect_camera`` / ``disconnect_camera``);
     this loop is the other half, picking the change up on its own next poll.
 
     ``Pipeline.add_worker`` is nothing more than a dict insert, and
@@ -228,7 +233,19 @@ def _camera_reload_loop(
                 logger.info("camera=%s hot-dropped from the running pipeline", code)
 
         for camera, source, zones in cameras:
-            if camera.camera_id in pipeline.workers:
+            running = pipeline.workers.get(camera.camera_id)
+            if running is not None:
+                # Already running -- but its ZONES may have been edited since
+                # it started. A zone is the policy decision about what counts
+                # as an intrusion, so an admin drawing one expects the running
+                # system to honour it without a restart, exactly like
+                # connecting a camera does.
+                if running.update_zones_if_changed(zones, (camera.width, camera.height)):
+                    logger.info(
+                        "camera=%s zones reloaded (%d zone(s)) with no restart",
+                        camera.code,
+                        len(zones),
+                    )
                 continue
             worker = build_worker(camera, source, zones)
             pipeline.add_worker(worker)
@@ -308,10 +325,10 @@ def _calibration(raw: Any) -> Calibration | None:
 
 def _dsn() -> str:
     return (
-        f"postgresql://{os.getenv('DB_USER', 'drishti')}:"
-        f"{os.getenv('DB_PASSWORD', 'drishti_dev')}@"
+        f"postgresql://{os.getenv('DB_USER', 'ibvap')}:"
+        f"{os.getenv('DB_PASSWORD', 'ibvap_dev')}@"
         f"{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/"
-        f"{os.getenv('DB_NAME', 'drishti')}"
+        f"{os.getenv('DB_NAME', 'ibvap')}"
     )
 
 
@@ -326,8 +343,8 @@ def build_sinks(cfg: AppConfig) -> tuple[FanoutSink, MinioSink | None]:
     if cfg.get("sinks.minio", True):
         minio = MinioSink(
             endpoint=os.getenv("MINIO_ENDPOINT", "localhost:9000"),
-            access_key=os.getenv("MINIO_ACCESS_KEY", "drishti"),
-            secret_key=os.getenv("MINIO_SECRET_KEY", "drishti_dev_secret"),
+            access_key=os.getenv("MINIO_ACCESS_KEY", "ibvap"),
+            secret_key=os.getenv("MINIO_SECRET_KEY", "ibvap_dev_secret"),
             secure=os.getenv("MINIO_SECURE", "false").lower() == "true",
         )
     if not sinks:
@@ -378,9 +395,113 @@ def build_anpr(cfg: AppConfig) -> tuple[AnprConfig, Any, bytes]:
     return anpr_cfg, reader, key
 
 
+def build_pose(cfg: AppConfig) -> tuple[GestureConfig, Any]:
+    """§7.7 hand signals. Returns the config and a shared pose estimator.
+
+    Fails soft, exactly like build_anpr: gestures are an enrichment, never the
+    reason an alert exists (HandSignalRule is contextual), so a missing weights
+    file or an unusable accelerator must cost the feature and nothing else. The
+    worker still detects, tracks and alerts.
+    """
+    gesture_cfg = GestureConfig.from_mapping(cfg.as_dict())
+    if not gesture_cfg.enabled:
+        return gesture_cfg, None
+
+    from .detect import DetectorConfig
+    from .detect.onnx_pose import OnnxPoseEstimator
+
+    detector_cfg = DetectorConfig.from_mapping(cfg.as_dict())
+    try:
+        estimator = OnnxPoseEstimator(
+            replace(
+                detector_cfg,
+                weights=gesture_cfg.weights,
+                input_size=gesture_cfg.input_size,
+            ),
+            min_person_conf=gesture_cfg.min_person_conf,
+        )
+    except Exception:
+        logger.warning(
+            "could not load the pose model (%s); hand signals are disabled for "
+            "this run. Everything else is unaffected -- run `make models` if you "
+            "want them back.",
+            gesture_cfg.weights,
+            exc_info=True,
+        )
+        return gesture_cfg, None
+    return gesture_cfg, estimator
+
+
+def build_weapon(cfg: AppConfig) -> tuple[WeaponConfig, Any]:
+    """§7.7 weapons. Fails soft, exactly like build_pose and build_anpr: a
+    missing weights file costs the feature and nothing else."""
+    weapon_cfg = WeaponConfig.from_mapping(cfg.as_dict())
+    if not weapon_cfg.enabled:
+        return weapon_cfg, None
+
+    from .detect import DetectorConfig
+    from .detect.onnx_weapon import OnnxWeaponDetector
+
+    detector_cfg = DetectorConfig.from_mapping(cfg.as_dict())
+    try:
+        detector = OnnxWeaponDetector(
+            replace(
+                detector_cfg,
+                weights=weapon_cfg.weights,
+                input_size=weapon_cfg.input_size,
+            ),
+            min_conf=weapon_cfg.min_conf,
+            nms_iou=weapon_cfg.nms_iou,
+        )
+    except Exception:
+        logger.warning(
+            "could not load the weapon model (%s); weapon detection is disabled "
+            "for this run. Everything else is unaffected -- run `make models` if "
+            "you want it back.",
+            weapon_cfg.weights,
+            exc_info=True,
+        )
+        return weapon_cfg, None
+    return weapon_cfg, detector
+
+
+def build_faces(cfg: AppConfig) -> tuple[FaceConfig, Any, Any]:
+    """§7.10 faces. OPT-IN, and fails soft exactly like the other second-stage
+    builders: a missing weights file or a disabled flag costs the feature and
+    nothing else. Returns ``(config, detector, embedder)`` -- both models or
+    neither, since matching needs both and one without the other is useless.
+    """
+    face_cfg = FaceConfig.from_mapping(cfg.as_dict())
+    if not face_cfg.enabled:
+        return face_cfg, None, None
+
+    from .detect import DetectorConfig
+    from .detect.onnx_face import OnnxFaceDetector, OnnxFaceEmbedder
+
+    try:
+        detector = OnnxFaceDetector(
+            DetectorConfig(
+                weights=face_cfg.detector_weights, input_size=face_cfg.detector_input_size
+            ),
+            face_cfg,
+        )
+        embedder = OnnxFaceEmbedder(DetectorConfig(weights=face_cfg.embedder_weights))
+    except Exception:
+        logger.warning(
+            "could not load the face models (%s / %s); face matching is disabled "
+            "for this run. Everything else is unaffected -- run `make models` if "
+            "you want it back.",
+            face_cfg.detector_weights,
+            face_cfg.embedder_weights,
+            exc_info=True,
+        )
+        return face_cfg, None, None
+    return face_cfg, detector, embedder
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="drishti-worker", description="DRISHTI-BOP analytics worker"
+        prog="ibvap-worker", description="IBVAP analytics worker"
     )
     parser.add_argument("--config", default="config")
     parser.add_argument("--profile", default=None, help="laptop | bop | edge")
@@ -395,7 +516,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.get("logging.format", "console"),
     )
 
-    logger.info("DRISHTI-BOP worker starting — %s", cfg.summary())
+    logger.info("IBVAP worker starting — %s", cfg.summary())
     logger.info("config sources: %s", ", ".join(cfg.sources))
 
     check_clock(float(cfg.get("runtime.max_clock_skew_s", 2.0)))
@@ -415,7 +536,7 @@ def main(argv: list[str] | None = None) -> int:
         minio=minio,
         config_version=cfg.version,
         spec_version=cfg.get("meta.spec_version", "1.0.0"),
-        worker_version=__import__("drishti_worker").__version__,
+        worker_version=__import__("ibvap_worker").__version__,
         snapshot_quality=int(cfg.get("evidence.snapshot_quality", 92)),
         clip_pre_roll_s=float(cfg.get("evidence.clip_pre_roll_s", 5.0)),
         clip_post_roll_s=float(cfg.get("evidence.clip_post_roll_s", 5.0)),
@@ -427,16 +548,28 @@ def main(argv: list[str] | None = None) -> int:
         assembler.emit(record)
 
     live_tracks = LiveTrackPublisher(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    health_publisher = HealthPublisher(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
 
     pipeline = Pipeline(
         detector,
         detector_cfg,
         frame_queue_size=int(cfg.get("ingest.frame_queue_size", 4)),
         stats_interval_s=float(cfg.get("pipeline.stats_interval_s", 10)),
+        health_publisher=health_publisher,
     )
 
     anpr_cfg, anpr_reader, plate_hmac_key = build_anpr(cfg)
+    gesture_cfg, pose_estimator = build_pose(cfg)
+    weapon_cfg, weapon_detector = build_weapon(cfg)
+    face_cfg, face_detector, face_embedder = build_faces(cfg)
     watchlist = WatchlistCache()
+    face_watchlist = FaceWatchlistCache(threshold=face_cfg.match_threshold)
+    if face_detector is not None:
+        # Same best-effort posture as the plate watchlist: a DB that is not up
+        # yet just means no face hits until the first successful refresh (P9).
+        face_watchlist.start_refresh_thread(
+            _dsn(), interval_s=float(cfg.get("faces.watchlist_refresh_s", 60.0))
+        )
     if anpr_reader is not None:
         # Best-effort from the start: a DB that is not up yet just means no
         # watchlist hits until the first successful refresh (P9). ANPR keeps
@@ -464,6 +597,14 @@ def main(argv: list[str] | None = None) -> int:
             clip_pre_roll_s=float(cfg.get("evidence.clip_pre_roll_s", 5.0)),
             anpr_cfg=anpr_cfg,
             anpr_reader=anpr_reader,
+            gesture_cfg=gesture_cfg,
+            pose_estimator=pose_estimator,
+            weapon_cfg=weapon_cfg,
+            weapon_detector=weapon_detector,
+            face_cfg=face_cfg,
+            face_detector=face_detector,
+            face_embedder=face_embedder,
+            face_watchlist=face_watchlist,
             watchlist=watchlist,
             plate_hmac_key=plate_hmac_key,
         )
@@ -500,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
         detector.backend,
         cfg.version[:12],
     )
-    print(f"[{datetime.now(UTC).isoformat()}] drishti-worker READY", file=sys.stderr)
+    print(f"[{datetime.now(UTC).isoformat()}] ibvap-worker READY", file=sys.stderr)
 
     try:
         while not stopping["flag"]:

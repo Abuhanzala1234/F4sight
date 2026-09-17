@@ -290,7 +290,7 @@ def assemble(
             )
 
     return {
-        "schema": "drishti.evidence/v1",
+        "schema": "ibvap.evidence/v1",
         "alert_id": alert_id,
         "created_at": created_at,
         "site": dict(site),
@@ -368,7 +368,7 @@ def verify(
     checks: list[tuple[str, bool, str]] = [
         (
             "schema",
-            doc.get("schema") == "drishti.evidence/v1",
+            doc.get("schema") == "ibvap.evidence/v1",
             f"schema={doc.get('schema')!r}",
         ),
         (

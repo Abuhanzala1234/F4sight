@@ -53,7 +53,7 @@ def _as_provider_tuple(value: Any) -> tuple[str, ...]:
 
     ``tuple("CPUExecutionProvider")`` explodes a bare string into one tuple
     element per CHARACTER -- a classic Python footgun, and a real one here:
-    a single-provider override (e.g. ``DRISHTI__DETECTOR__PROVIDERS=CPU...``)
+    a single-provider override (e.g. ``IBVAP__DETECTOR__PROVIDERS=CPU...``)
     is exactly the kind of value an operator would type when working around a
     flaky GPU backend, and it silently produced a provider list of individual
     letters instead of failing loudly.

@@ -1,5 +1,5 @@
-# DRISHTI-BOP defaults. Merge order (later wins):
-#   defaults -> profiles/<profile> -> sites/<site> -> env (DRISHTI__A__B) -> CLI
+# IBVAP defaults. Merge order (later wins):
+#   defaults -> profiles/<profile> -> sites/<site> -> env (IBVAP__A__B) -> CLI
 # The SHA-256 of the MERGED document becomes config_version, recorded on every
 # alert, so any alert can be traced to the exact ruleset that produced it (§11).
 

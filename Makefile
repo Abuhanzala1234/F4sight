@@ -1,4 +1,4 @@
-# DRISHTI-BOP — every command a human needs. See CLAUDE.md "Common tasks".
+# IBVAP — every command a human needs. See CLAUDE.md "Common tasks".
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -15,7 +15,7 @@ export PYTHONPATH := worker/src:api/src
 # ---------------------------------------------------------------- help
 .PHONY: help
 help:  ## Show this help
-	@echo "DRISHTI-BOP — SIH 2026 · PS 26187 · Team SW-73"; echo
+	@echo "IBVAP — SIH 2026 · PS 26187 · Team SW-73"; echo
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
@@ -68,13 +68,13 @@ logs:  ## Tail infra logs
 migrate:  ## alembic upgrade head
 	# alembic.ini's script_location is relative to the CURRENT DIRECTORY, not
 	# to the ini file's own location -- run from the repo root (as every other
-	# target does) and it looks for repo-root/src/drishti_api/migrations,
+	# target does) and it looks for repo-root/src/ibvap_api/migrations,
 	# which does not exist. `cd api` first so it resolves correctly.
 	cd api && ../$(BIN)/alembic -c alembic.ini upgrade head
 
 .PHONY: seed
 seed:  ## Demo sites, cameras, zones, users, watchlist
-	$(BIN)/python -m drishti_api.seed --profile $(PROFILE) --site $(SITE)
+	$(BIN)/python -m ibvap_api.seed --profile $(PROFILE) --site $(SITE)
 
 .PHONY: models
 models:  ## Download + export every free model into models/ (one time, ~166 MB)
@@ -87,15 +87,15 @@ fixtures:  ## Fetch/generate sample MP4s for the fixture RTSP streams
 # ---------------------------------------------------------------- run
 .PHONY: worker
 worker:  ## Run the analytics worker against fixture streams
-	$(BIN)/python -m drishti_worker --profile $(PROFILE) --site $(SITE)
+	$(BIN)/python -m ibvap_worker --profile $(PROFILE) --site $(SITE)
 
 .PHONY: api
 api:  ## Run FastAPI with reload
-	$(BIN)/uvicorn drishti_api.main:app --reload --host 0.0.0.0 --port 8000
+	$(BIN)/uvicorn ibvap_api.main:app --reload --host 0.0.0.0 --port 8000
 
 .PHONY: anchor
 anchor:  ## Run the ledger anchoring service
-	$(BIN)/python -m drishti_worker.anchor_service
+	$(BIN)/python -m ibvap_worker.anchor_service
 
 .PHONY: dash
 dash:  ## Vite dev server

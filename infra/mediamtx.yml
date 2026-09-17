@@ -4,9 +4,16 @@
 logLevel: info
 logDestinations: [stdout]
 
-readTimeout: 10s
-writeTimeout: 10s
-writeQueueSize: 512
+# A phone on weak WiFi stalls for seconds at a time without being gone. At
+# readTimeout: 10s those stalls were tearing the RTSP session down roughly
+# once a minute, and every teardown costs the HLS muxer, the recording
+# segment and the worker's reader -- far more disruptive than the stall.
+readTimeout: 20s
+writeTimeout: 20s
+# 512 is too small for 1080p30: the recorder could not drain fast enough and
+# logged "write queue is full", which means dropped video in the one process
+# that must not drop it (P8). Must stay a power of two.
+writeQueueSize: 4096
 
 # --- RTSP (ingest from real cameras, and serve fixtures) ---
 rtsp: yes
@@ -26,6 +33,22 @@ hlsAllowOrigin: '*'          # dev only; tighten in the bop profile
 webrtc: yes
 webrtcAddress: :8889
 webrtcAllowOrigin: '*'
+
+# By default MediaMTX advertises an ICE host candidate for every IP on every
+# network interface it can see -- inside this container that means its own
+# Docker bridge address (172.18.0.x), which is unreachable from the host or
+# a browser. A WHEP POST still negotiates fine (the SDP exchange is plain
+# HTTP through the published port), so the failure is invisible until the
+# picture never actually arrives: ICE keeps trying to reach an address that
+# only exists inside Docker's network namespace, and the browser sits there
+# until its own connection-failed timeout fires. `docker-compose.yml`
+# publishes the matching webrtcLocalUDPAddress port to the host; this tells
+# MediaMTX to also offer that host as a reachable candidate. §5 targets one
+# machine (the dashboard opens at localhost per the Quick Start), so
+# 127.0.0.1 covers it -- add the box's LAN IP here too if an operator's
+# browser will ever be on a separate machine from this compose stack.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [127.0.0.1]
 
 api: yes
 apiAddress: :9997

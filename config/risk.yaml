@@ -14,8 +14,38 @@ risk:
     WATCHLIST_FACE: 35.0
     WATCHLIST_PLATE: 30.0
     CROWD_FORMING: 25.0
+    # Group behaviour (§7.7). Converging outranks dispersing: several people
+    # closing on one point is a developing situation an operator can still act
+    # on, while a scatter is usually the aftermath of one.
+    GROUP_CONVERGING: 30.0
+    GROUP_DISPERSING: 22.0
     UNAUTHORISED_VEHICLE: 25.0
     CAMERA_TAMPER: 30.0
+
+    # A confirmed weapon is 'high' on its own and goes critical the moment it
+    # combines with anything else. An armed person needs no second reason to be
+    # worth waking someone for.
+    #
+    # Why 75 and not 60: the alert fires the moment the rule gate opens, which
+    # is also when SHORT_TRACK (-12) still applies -- at 60 that landed an
+    # armed person in the operator's queue as 'medium', which is exactly the
+    # "severity is what they triage on" failure the debouncer's escalation
+    # margin exists to prevent elsewhere. 75 leaves it 'high' (63) even under
+    # that discount, and 'high' (75) on a clean track. The discount is still
+    # applied and still visible in the breakdown -- P3 is not being bypassed,
+    # it just no longer decides the band. Found by a test, not by reasoning.
+    WEAPON_VISIBLE: 75.0
+
+    # Running, measured in body-heights per second so it means the same thing
+    # at any distance from the camera. Alone it is 'low' -- people do run for
+    # innocent reasons -- but it lifts a tripwire crossing from 45 to 73, which
+    # is the difference between 'someone crossed' and 'someone rushed'.
+    FAST_MOVEMENT: 28.0
+
+    # --- Hand signals (§7.7). Contextual: these enrich a real event, they
+    # --- never raise one alone (see rules.HandSignalRule).
+    ARM_RAISED: 15.0            # signalling to someone the camera cannot see
+    POINTING: 10.0              # directing others to a place
 
     # --- Negative contributions. These are how the system says "I saw
     # --- something but conditions were poor", instead of crying wolf. P3.
@@ -23,6 +53,9 @@ risk:
     DEGRADED_INPUT: -8.0        # EVQM profile in degraded_profiles
     SHORT_TRACK: -12.0          # track younger than short_track_frames
     KNOWN_PATROL_WINDOW: -15.0  # scheduled friendly movement
+    # Showing empty hands is de-escalation, and a model that cannot say so is
+    # one that only ever shouts louder. P3.
+    HANDS_UP: -12.0
 
   modifiers:
     low_confidence_below: 0.60

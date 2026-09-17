@@ -21,10 +21,10 @@ logger = logging.getLogger("replay")
 
 def dsn() -> str:
     return (
-        f"postgresql://{os.getenv('DB_USER', 'drishti')}:"
-        f"{os.getenv('DB_PASSWORD', 'drishti_dev')}@"
+        f"postgresql://{os.getenv('DB_USER', 'ibvap')}:"
+        f"{os.getenv('DB_PASSWORD', 'ibvap_dev')}@"
         f"{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/"
-        f"{os.getenv('DB_NAME', 'drishti')}"
+        f"{os.getenv('DB_NAME', 'ibvap')}"
     )
 
 

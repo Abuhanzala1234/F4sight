@@ -81,10 +81,9 @@ export class AlertSocket {
 
 /**
  * Live per-camera track overlay socket. Real tracker output, not alerts --
- * see DetectionOverlay.tsx for what this feeds and its honest limitations
- * (chiefly: HLS video lags the live feed by a few seconds, so the boxes will
- * visibly run ahead of the picture; there is no per-camera replay on
- * reconnect, since a missed frame is simply gone a second later).
+ * see DetectionOverlay.tsx for what this feeds and how it stays aligned with
+ * the picture. There is no per-camera replay on reconnect, since a missed
+ * frame is simply gone a second later.
  */
 export class LiveTrackSocket {
   private socket: WebSocket | null = null;

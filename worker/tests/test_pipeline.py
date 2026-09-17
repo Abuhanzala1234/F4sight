@@ -12,17 +12,17 @@ from datetime import timedelta
 import numpy as np
 from helpers import T0
 
-from drishti_worker.anpr import AnprConfig, PlateCandidate, plate_hmac
-from drishti_worker.detect import DetectorConfig, MockDetector
-from drishti_worker.enhance import EnhanceConfig
-from drishti_worker.evqm import EVQMConfig
-from drishti_worker.ingest import IngestConfig
-from drishti_worker.pipeline import CameraWorker, DetBundle, Pipeline, _DropOldestQueue
-from drishti_worker.risk import RiskConfig
-from drishti_worker.rules import DebounceConfig, RuleConfig
-from drishti_worker.track import TrackerConfig
-from drishti_worker.types import Detection, Frame, FrameTransform, ZoneKind, ZoneRuntime
-from drishti_worker.watchlist import PlateWatchHit, WatchlistCache
+from ibvap_worker.anpr import AnprConfig, PlateCandidate, plate_hmac
+from ibvap_worker.detect import DetectorConfig, MockDetector
+from ibvap_worker.enhance import EnhanceConfig
+from ibvap_worker.evqm import EVQMConfig
+from ibvap_worker.ingest import IngestConfig
+from ibvap_worker.pipeline import CameraWorker, DetBundle, Pipeline, _DropOldestQueue
+from ibvap_worker.risk import RiskConfig
+from ibvap_worker.rules import DebounceConfig, RuleConfig
+from ibvap_worker.track import TrackerConfig
+from ibvap_worker.types import Detection, Frame, FrameTransform, ZoneKind, ZoneRuntime
+from ibvap_worker.watchlist import PlateWatchHit, WatchlistCache
 
 
 class Recorder:
@@ -425,3 +425,423 @@ class TestAnprWiring:
         for i in range(10, 45):
             worker._process(bundle_with_image(camera, i, []))
         assert worker._plate_voters == {}
+
+
+class TestFrameSizeReconciliation:
+    """Zones are stored normalised and denormalised once at startup against the
+    camera row's ``resolution_w/h``. Nothing updates that column when an
+    operator binds a real camera by IP, so the decoded frame — not the row —
+    has to be the authority on geometry, or every zone lands in the wrong
+    place on any camera that is not the seeded 1280x720.
+    """
+
+    def test_zones_rescale_to_the_size_the_camera_actually_streams(self, camera, area_zone):
+        worker = build_worker(camera, [area_zone], Recorder())
+        worker._on_frame(
+            Frame(
+                camera_id=camera.camera_id,
+                frame_id=1,
+                ts_utc=T0,
+                image=None,
+                width=640,
+                height=360,
+            )
+        )
+        assert (worker.camera.width, worker.camera.height) == (640, 360)
+        # Half the configured size in both axes, so every vertex halves.
+        assert worker.zones[0].polygon == (
+            (50.0, 50.0),
+            (250.0, 50.0),
+            (250.0, 250.0),
+            (50.0, 250.0),
+        )
+
+    def test_a_portrait_stream_rescales_each_axis_independently(self, camera, area_zone):
+        """The failure this guards is a phone held upright: the aspect ratio
+        inverts, so a single uniform scale factor would still be wrong."""
+        worker = build_worker(camera, [area_zone], Recorder())
+        worker._on_frame(
+            Frame(
+                camera_id=camera.camera_id,
+                frame_id=1,
+                ts_utc=T0,
+                image=None,
+                width=720,
+                height=1280,
+            )
+        )
+        sx, sy = 720 / 1280, 1280 / 720
+        assert worker.zones[0].polygon[1] == (500.0 * sx, 100.0 * sy)
+
+    def test_a_matching_frame_leaves_geometry_untouched(self, camera, area_zone):
+        worker = build_worker(camera, [area_zone], Recorder())
+        worker._on_frame(frame_at(camera, 1))
+        assert worker.zones[0] is area_zone
+
+
+def build_gesture_worker(camera, zones, recorder, *, estimator, gesture_cfg=None):
+    from ibvap_worker.gesture import GestureConfig
+
+    return CameraWorker(
+        camera=camera,
+        source="/dev/null/fixture.mp4",
+        zones=zones,
+        ingest_cfg=IngestConfig(analytics_fps=6.0),
+        evqm_cfg=EVQMConfig(enabled=False),
+        enhance_cfg=EnhanceConfig(),
+        tracker_cfg=TrackerConfig(min_hits=3),
+        rule_cfg=RuleConfig(),
+        risk_cfg=RiskConfig(),
+        debounce_cfg=DebounceConfig(cooldown_s=45.0, escalate_after_s=120.0),
+        frame_queue=_DropOldestQueue(4),
+        on_alert=recorder,
+        gesture_cfg=gesture_cfg
+        or GestureConfig(enabled=True, every_n_frames=1, min_frames_agreed=4, window_frames=8),
+        pose_estimator=estimator,
+    )
+
+
+class TestHandSignals:
+    """§7.7 gestures, driven through the real pipeline with a mock pose model.
+    'Mock the GPU, not the logic.'"""
+
+    def _surrender_pose(self):
+        """A person with both hands above their shoulders.
+
+        These are MODEL-space keypoints, which is what a real backend returns;
+        the pipeline maps them back through the crop's FrameTransform before
+        classifying. That mapping is a uniform scale plus a translation, and
+        the classifier is invariant to both (test_gesture.py proves it), so the
+        gesture survives the round trip -- which is the point of having built
+        it that way.
+        """
+        from ibvap_worker.detect.onnx_pose import MockPoseEstimator
+        from ibvap_worker.gesture import COCO_KEYPOINTS, Keypoint, Pose
+
+        joints = {
+            "nose": (330.0, 240.0),
+            "left_eye": (325.0, 235.0),
+            "right_eye": (335.0, 235.0),
+            "left_ear": (320.0, 238.0),
+            "right_ear": (340.0, 238.0),
+            "left_shoulder": (310.0, 260.0),
+            "right_shoulder": (350.0, 260.0),
+            "left_elbow": (308.0, 235.0),
+            "right_elbow": (352.0, 235.0),
+            "left_wrist": (308.0, 210.0),
+            "right_wrist": (352.0, 210.0),
+            "left_hip": (315.0, 360.0),
+            "right_hip": (345.0, 360.0),
+            "left_knee": (315.0, 430.0),
+            "right_knee": (345.0, 430.0),
+            "left_ankle": (315.0, 500.0),
+            "right_ankle": (345.0, 500.0),
+        }
+        pose = Pose(tuple(Keypoint(*joints[n], 0.9) for n in COCO_KEYPOINTS))
+        return MockPoseEstimator([pose])
+
+    def test_a_held_signal_enriches_a_real_alert(self, camera, area_zone):
+        """The whole chain: crop -> pose -> map back to original coordinates ->
+        classify -> vote -> signal -> risk breakdown.
+
+        The person stands inside an area zone with their hands up. ZONE_INTRUSION
+        is what raises the alert (HAND_SIGNAL is contextual and cannot); HANDS_UP
+        has to be riding along in the breakdown, carrying its negative weight."""
+        estimator = self._surrender_pose()
+        recorder = Recorder()
+        worker = build_gesture_worker(camera, [area_zone], recorder, estimator=estimator)
+        for i in range(12):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+
+        assert estimator.calls > 0
+        assert recorder.alerts, "the zone intrusion itself should have alerted"
+        codes = {s.code for a in recorder.alerts for s in a["signals"]}
+        assert "ZONE_INTRUSION" in codes
+        assert "HANDS_UP" in codes, f"gesture never reached the alert; got {codes}"
+
+        # P3: showing empty hands must REDUCE the score, and the breakdown must
+        # still sum to it (P2).
+        alert = next(a for a in recorder.alerts if any(s.code == "HANDS_UP" for s in a["signals"]))
+        hands_up = next(s for s in alert["signals"] if s.code == "HANDS_UP")
+        assert hands_up.weight < 0
+        assert alert["risk"].sums_correctly()
+
+    def test_contextual_only_never_raises_on_its_own(self, camera):
+        """A person waving in an empty field is not an alert. With no zones at
+        all, the gesture must produce nothing -- blocker #1."""
+        estimator = self._surrender_pose()
+        recorder = Recorder()
+        worker = build_gesture_worker(camera, [], recorder, estimator=estimator)
+        for i in range(14):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        assert estimator.calls > 0
+        assert recorder.alerts == []
+
+    def test_disabled_costs_nothing(self, camera, area_zone):
+        from ibvap_worker.gesture import GestureConfig
+
+        estimator = self._surrender_pose()
+        worker = build_gesture_worker(
+            camera,
+            [area_zone],
+            Recorder(),
+            estimator=estimator,
+            gesture_cfg=GestureConfig(enabled=False),
+        )
+        for i in range(8):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        assert estimator.calls == 0
+
+    def test_a_closed_track_does_not_leak_its_voter(self, camera, area_zone):
+        estimator = self._surrender_pose()
+        worker = build_gesture_worker(camera, [area_zone], Recorder(), estimator=estimator)
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        assert worker._gesture_voters
+        for i in range(10, 45):
+            worker._process(bundle_with_image(camera, i, []))
+        assert worker._gesture_voters == {}
+
+    def test_a_broken_pose_backend_never_costs_the_frame(self, camera, area_zone):
+        """P8: a flaky accelerator must not take the camera down with it."""
+
+        class Exploding:
+            input_size = (640, 640)
+
+            def estimate(self, _canvas):
+                raise RuntimeError("CUDA fell over")
+
+        recorder = Recorder()
+        worker = build_gesture_worker(camera, [area_zone], recorder, estimator=Exploding())
+        for i in range(12):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        # The zone intrusion still alerted, despite pose failing on every frame.
+        assert recorder.alerts
+
+
+def build_weapon_worker(camera, zones, recorder, *, detector, weapon_cfg=None):
+    from ibvap_worker.weapon import WeaponConfig
+
+    return CameraWorker(
+        camera=camera,
+        source="/dev/null/fixture.mp4",
+        zones=zones,
+        ingest_cfg=IngestConfig(analytics_fps=6.0),
+        evqm_cfg=EVQMConfig(enabled=False),
+        enhance_cfg=EnhanceConfig(),
+        tracker_cfg=TrackerConfig(min_hits=3),
+        rule_cfg=RuleConfig(),
+        risk_cfg=RiskConfig(),
+        debounce_cfg=DebounceConfig(cooldown_s=45.0, escalate_after_s=120.0),
+        frame_queue=_DropOldestQueue(4),
+        on_alert=recorder,
+        weapon_cfg=weapon_cfg
+        or WeaponConfig(enabled=True, every_n_frames=1, min_frames_agreed=3, window_frames=8),
+        weapon_detector=detector,
+    )
+
+
+class TestWeaponDetection:
+    """§7.7 weapons, driven through the real pipeline with a mock detector."""
+
+    def _armed(self, conf=0.9):
+        from ibvap_worker.detect.onnx_weapon import MockWeaponDetector
+        from ibvap_worker.weapon import WeaponCandidate
+
+        return MockWeaponDetector([WeaponCandidate("guns", conf)])
+
+    def test_an_armed_person_raises_an_alert_with_no_zone_at_all(self, camera):
+        """WEAPON_VISIBLE is STANDALONE, unlike hand signals. A person carrying
+        a firearm is an event before they cross anything -- waiting for a zone
+        breach would be waiting for the thing the alert exists to prevent."""
+        detector = self._armed()
+        recorder = Recorder()
+        worker = build_weapon_worker(camera, [], recorder, detector=detector)
+        for i in range(14):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+
+        assert detector.calls > 0
+        assert recorder.alerts, "an armed person with no zone should still alert"
+        codes = {s.code for a in recorder.alerts for s in a["signals"]}
+        assert "WEAPON_VISIBLE" in codes
+
+    def test_it_scores_high_even_on_a_young_track(self, camera):
+        """Regression: WEAPON_VISIBLE has to outrank the SHORT_TRACK discount.
+
+        The alert fires the moment the rule gate opens, which is also while the
+        track is still young enough for SHORT_TRACK (-12) to apply. At a weight
+        of 60 that landed an armed person in the queue as 'medium' -- and
+        severity is what an operator triages on. The discount is still applied
+        and still visible in the breakdown; it just no longer decides the band.
+        """
+        recorder = Recorder()
+        worker = build_weapon_worker(camera, [], recorder, detector=self._armed())
+        for i in range(14):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+
+        alert = recorder.alerts[0]
+        codes = {s.code for s in alert["risk"].breakdown}
+        assert "SHORT_TRACK" in codes, "the honesty discount must still be applied"
+        assert alert["risk"].severity in ("high", "critical")
+        assert alert["risk"].sums_correctly()  # P2
+
+    def test_an_unarmed_person_never_fires(self, camera):
+        from ibvap_worker.detect.onnx_weapon import MockWeaponDetector
+
+        detector = MockWeaponDetector([None])
+        recorder = Recorder()
+        worker = build_weapon_worker(camera, [], recorder, detector=detector)
+        for i in range(14):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        assert detector.calls > 0
+        assert recorder.alerts == []
+
+    def test_disabled_costs_nothing(self, camera):
+        from ibvap_worker.weapon import WeaponConfig
+
+        detector = self._armed()
+        worker = build_weapon_worker(
+            camera, [], Recorder(), detector=detector, weapon_cfg=WeaponConfig(enabled=False)
+        )
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        assert detector.calls == 0
+
+    def test_a_closed_track_does_not_leak_its_voter(self, camera):
+        worker = build_weapon_worker(camera, [], Recorder(), detector=self._armed())
+        for i in range(10):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        assert worker._weapon_voters
+        for i in range(10, 45):
+            worker._process(bundle_with_image(camera, i, []))
+        assert worker._weapon_voters == {}
+
+    def test_a_broken_backend_never_costs_the_camera(self, camera, area_zone):
+        """P8: a flaky accelerator must not take the pipeline down with it."""
+
+        class Exploding:
+            input_size = (640, 640)
+
+            def detect(self, _canvas):
+                raise RuntimeError("CUDA fell over")
+
+        recorder = Recorder()
+        worker = build_weapon_worker(camera, [area_zone], recorder, detector=Exploding())
+        for i in range(12):
+            worker._process(bundle_with_image(camera, i, [person_at(300.0)]))
+        # The zone intrusion still alerted despite weapon detection failing.
+        assert recorder.alerts
+
+
+class TestActivityGating:
+    """§7.7 activity gate: skip the expensive models when nothing changed.
+
+    The saving is the easy half. The half that matters is that stillness must
+    never clear a confirmed state -- an armed person who stops moving is still
+    armed, and a naive gate would quietly disarm them.
+    """
+
+    def _still_bundle(self, camera, i, dets):
+        """A bundle whose image is IDENTICAL every frame, so the gate sees no
+        motion at all. bundle_with_image() already makes a constant zero image,
+        which is exactly the pathological 'nothing is changing' input."""
+        return bundle_with_image(camera, i, dets)
+
+    def test_a_still_crop_stops_costing_inferences(self, camera):
+        from ibvap_worker.detect.onnx_weapon import MockWeaponDetector
+        from ibvap_worker.weapon import WeaponCandidate, WeaponConfig
+
+        detector = MockWeaponDetector([WeaponCandidate("guns", 0.9)])
+        worker = build_weapon_worker(
+            camera,
+            [],
+            Recorder(),
+            detector=detector,
+            weapon_cfg=WeaponConfig(
+                enabled=True,
+                every_n_frames=1,
+                min_frames_agreed=3,
+                window_frames=8,
+                activity_gate={"max_stale_frames": 1000},
+            ),
+        )
+        for i in range(30):
+            worker._process(self._still_bundle(camera, i, [person_at(300.0)]))
+
+        stats = worker._weapon_gate.stats()
+        assert stats["skips"] > 0, "a motionless crop should skip inferences"
+        # Far fewer model calls than frames processed.
+        assert detector.calls < 30
+
+    def test_an_armed_person_who_stops_moving_stays_armed(self, camera):
+        """THE safety property. The gate decides whether to spend an inference,
+        never that a previous answer expired."""
+        from ibvap_worker.detect.onnx_weapon import MockWeaponDetector
+        from ibvap_worker.weapon import WeaponCandidate, WeaponConfig
+
+        recorder = Recorder()
+        detector = MockWeaponDetector([WeaponCandidate("guns", 0.9)])
+        worker = build_weapon_worker(
+            camera,
+            [],
+            recorder,
+            detector=detector,
+            weapon_cfg=WeaponConfig(
+                enabled=True,
+                every_n_frames=1,
+                min_frames_agreed=3,
+                window_frames=8,
+                activity_gate={"max_stale_frames": 1000},
+            ),
+        )
+        # Long enough that the gate is skipping most frames by the end.
+        for i in range(40):
+            worker._process(self._still_bundle(camera, i, [person_at(300.0)]))
+
+        assert worker._weapon_gate.stats()["skips"] > 0
+        assert recorder.alerts, "the armed person must still have alerted"
+        codes = {s.code for a in recorder.alerts for s in a["signals"]}
+        assert "WEAPON_VISIBLE" in codes
+        # And the held state is what kept reporting it while the crop was still.
+        assert worker._weapon_last, "a confirmed weapon must be retained across skips"
+
+    def test_putting_the_weapon_down_still_clears_it(self, camera):
+        """The other direction: a real re-check that comes back negative must
+        clear the held state, or nobody could ever stop being armed."""
+        from ibvap_worker.detect.onnx_weapon import MockWeaponDetector
+        from ibvap_worker.weapon import WeaponCandidate, WeaponConfig
+
+        # Armed for the first few calls, then clean for the rest.
+        detector = MockWeaponDetector([WeaponCandidate("guns", 0.9)] * 4 + [None] * 40)
+        worker = build_weapon_worker(
+            camera,
+            [],
+            Recorder(),
+            detector=detector,
+            weapon_cfg=WeaponConfig(
+                enabled=True,
+                every_n_frames=1,
+                min_frames_agreed=3,
+                window_frames=4,
+                # Heartbeat every frame, so the model really is re-consulted
+                # even though the synthetic image never changes.
+                activity_gate={"max_stale_frames": 1},
+            ),
+        )
+        for i in range(30):
+            worker._process(self._still_bundle(camera, i, [person_at(300.0)]))
+        assert worker._weapon_last == {}, "a negative re-check must clear the held state"
+
+    def test_the_gate_state_does_not_leak_on_track_close(self, camera):
+        from ibvap_worker.detect.onnx_weapon import MockWeaponDetector
+        from ibvap_worker.weapon import WeaponCandidate
+
+        worker = build_weapon_worker(
+            camera, [], Recorder(), detector=MockWeaponDetector([WeaponCandidate("guns", 0.9)])
+        )
+        for i in range(10):
+            worker._process(self._still_bundle(camera, i, [person_at(300.0)]))
+        for i in range(10, 45):
+            worker._process(self._still_bundle(camera, i, []))
+        assert worker._weapon_last == {}
+        assert worker._weapon_gate._thumbs == {}

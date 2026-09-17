@@ -6,9 +6,10 @@ while Redis is down teaches operators to ignore the dashboard.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import text
@@ -74,6 +75,67 @@ def _check_minio(settings: Settings) -> ComponentHealth:
         return ComponentHealth(name="minio", ok=False, detail=str(exc)[:200])
 
 
+def _worker_cameras(settings: Settings) -> tuple[list[dict[str, Any]], list[str]]:
+    """Per-camera state, as last reported by the worker (sinks.HealthPublisher).
+
+    None of this is knowable from inside the API: stream state, measured fps,
+    the EVQM profile in force and the reconnect count all live in the worker's
+    memory, in another process. The key carries a TTL, so its *absence* is
+    itself the answer -- a worker that died stops refreshing it and this
+    reports the analytics as down rather than serving its last known good
+    snapshot forever, which would be the dashboard telling a comfortable lie.
+    """
+    try:
+        import redis
+
+        raw = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=2).get(
+            settings.worker_health_key
+        )
+    except Exception as exc:
+        return [], [f"could not read worker health: {str(exc)[:120]}"]
+
+    if raw is None:
+        return [], ["analytics worker is not reporting (no health snapshot); cameras unknown"]
+
+    try:
+        snapshot = json.loads(raw)
+    except ValueError:
+        return [], ["worker health snapshot is unreadable"]
+
+    cameras = snapshot.get("cameras")
+    if not isinstance(cameras, list):
+        return [], ["worker health snapshot carried no camera list"]
+
+    warnings: list[str] = []
+    summary: list[dict[str, Any]] = []
+    for entry in cameras:
+        if not isinstance(entry, dict):
+            continue
+        ingest = entry.get("ingest") or {}
+        state = str(entry.get("state", "unknown"))
+        summary.append(
+            {
+                "camera_id": entry.get("camera_id"),
+                "code": entry.get("camera_code"),
+                "state": state,
+                "evqm_profile": entry.get("evqm_profile"),
+                "fps_in": ingest.get("fps_in"),
+                "tracks_active": entry.get("tracks_active"),
+                "reconnects": ingest.get("reconnects"),
+                "last_error": ingest.get("last_error"),
+            }
+        )
+        # A camera the worker is retrying is not an outage, but it is not
+        # something to render green either -- say so once, by name.
+        if state not in ("live", "StreamState.LIVE"):
+            summary[-1]["ok"] = False
+            warnings.append(f"camera {entry.get('camera_code') or entry.get('camera_id')}: {state}")
+        else:
+            summary[-1]["ok"] = True
+
+    return summary, warnings
+
+
 @router.get("/health", response_model=HealthOut)
 async def health(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -82,11 +144,13 @@ async def health(
     components = [await _check_db(db), _check_redis(settings), _check_minio(settings)]
     critical_ok = components[0].ok  # only the database is load-bearing for reads
     all_ok = all(c.ok for c in components)
+    cameras, camera_warnings = _worker_cameras(settings)
     return HealthOut(
         status="ok" if all_ok else ("degraded" if critical_ok else "down"),
         version=__version__,
         components=components,
-        warnings=settings.warn_on_dev_secrets(),
+        cameras=cameras,
+        warnings=[*settings.warn_on_dev_secrets(), *camera_warnings],
     )
 
 
@@ -101,9 +165,9 @@ async def liveness() -> dict[str, str]:
 async def metrics(db: Annotated[AsyncSession, Depends(get_db)]) -> Response:
     """Prometheus text format (§8)."""
     lines = [
-        "# HELP drishti_api_up API process is running",
-        "# TYPE drishti_api_up gauge",
-        "drishti_api_up 1",
+        "# HELP ibvap_api_up API process is running",
+        "# TYPE ibvap_api_up gauge",
+        "ibvap_api_up 1",
     ]
     try:
         rows = (
@@ -115,20 +179,20 @@ async def metrics(db: Annotated[AsyncSession, Depends(get_db)]) -> Response:
             )
         ).all()
         lines += [
-            "# HELP drishti_alerts_24h Alerts raised in the last 24 hours",
-            "# TYPE drishti_alerts_24h gauge",
-            *[f'drishti_alerts_24h{{severity="{sev}"}} {count}' for sev, count in rows],
+            "# HELP ibvap_alerts_24h Alerts raised in the last 24 hours",
+            "# TYPE ibvap_alerts_24h gauge",
+            *[f'ibvap_alerts_24h{{severity="{sev}"}} {count}' for sev, count in rows],
         ]
         pending = (
             await db.execute(text("SELECT count(*) FROM alert WHERE ledger_status = 'pending'"))
         ).scalar_one()
         lines += [
-            "# HELP drishti_ledger_pending Alerts awaiting a ledger anchor",
-            "# TYPE drishti_ledger_pending gauge",
-            f"drishti_ledger_pending {pending}",
+            "# HELP ibvap_ledger_pending Alerts awaiting a ledger anchor",
+            "# TYPE ibvap_ledger_pending gauge",
+            f"ibvap_ledger_pending {pending}",
         ]
     except Exception:
         logger.exception("metrics query failed; serving liveness only")
-        lines.append("drishti_metrics_degraded 1")
+        lines.append("ibvap_metrics_degraded 1")
 
     return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")

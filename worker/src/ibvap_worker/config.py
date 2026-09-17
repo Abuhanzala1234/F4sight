@@ -6,10 +6,11 @@ BOP, it belongs in config/, not in the source.*
 Merge order, later wins::
 
     defaults.yaml
-      -> <domain>.yaml (detector, evqm, rules, risk, anpr, faces, ledger)
+      -> <domain>.yaml (detector, evqm, rules, risk, anpr, gestures, weapons,
+                        faces, ledger)
       -> profiles/<profile>.yaml
       -> sites/<SITE>.yaml
-      -> environment (DRISHTI__SECTION__KEY=value)
+      -> environment (IBVAP__SECTION__KEY=value)
       -> CLI overrides
 
 The merged document is hashed to produce ``config_version``, which is written
@@ -43,10 +44,20 @@ __all__ = [
     "load_config",
 ]
 
-ENV_PREFIX = "DRISHTI__"
+ENV_PREFIX = "IBVAP__"
 
 # Domain files merged on top of defaults, in this order.
-DOMAIN_FILES = ("detector", "evqm", "rules", "risk", "anpr", "faces", "ledger")
+DOMAIN_FILES = (
+    "detector",
+    "evqm",
+    "rules",
+    "risk",
+    "anpr",
+    "gestures",
+    "weapons",
+    "faces",
+    "ledger",
+)
 
 # Keys whose values are secrets: never logged, never written into evidence, and
 # never read from config/ (§11, §12).
@@ -100,7 +111,7 @@ def _coerce_scalar(text: str) -> Any:
 def apply_env_overrides(
     cfg: Mapping[str, Any], environ: Mapping[str, str] | None = None
 ) -> dict[str, Any]:
-    """Apply ``DRISHTI__SECTION__KEY=value`` overrides.
+    """Apply ``IBVAP__SECTION__KEY=value`` overrides.
 
     Double underscore separates levels, so single-underscore key names
     (``analytics_fps``) survive intact. Keys are lower-cased to match the YAML.
@@ -241,7 +252,7 @@ def load_config(
             sources.append(path.name)
 
     chosen_profile = (
-        profile or env.get("DRISHTI_PROFILE") or merged.get("runtime", {}).get("profile", "laptop")
+        profile or env.get("IBVAP_PROFILE") or merged.get("runtime", {}).get("profile", "laptop")
     )
     profile_path = root / "profiles" / f"{chosen_profile}.yaml"
     if profile_path.exists():
@@ -252,7 +263,7 @@ def load_config(
             f"unknown profile {chosen_profile!r}: {profile_path} does not exist"
         )
 
-    chosen_site = site or env.get("DRISHTI_SITE") or merged.get("runtime", {}).get("site", "")
+    chosen_site = site or env.get("IBVAP_SITE") or merged.get("runtime", {}).get("site", "")
     if chosen_site:
         site_path = root / "sites" / f"{chosen_site}.yaml"
         if site_path.exists():

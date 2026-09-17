@@ -1,4 +1,4 @@
--- DRISHTI-BOP database bootstrap. Runs once, on first container start.
+-- IBVAP database bootstrap. Runs once, on first container start.
 -- Schema itself lives in Alembic migrations (§6); this file is only for
 -- things that must exist before the first migration runs.
 
@@ -25,8 +25,8 @@ END
 $$ LANGUAGE plpgsql VOLATILE;
 
 COMMENT ON FUNCTION uuid7() IS
-  'RFC 9562 UUIDv7. Time-sortable. Default PK for every DRISHTI table.';
+  'RFC 9562 UUIDv7. Time-sortable. Default PK for every IBVAP table.';
 
 -- Every timestamp in this system is UTC. The dashboard localises; the database
 -- never guesses.
-ALTER DATABASE drishti SET timezone TO 'UTC';
+ALTER DATABASE ibvap SET timezone TO 'UTC';

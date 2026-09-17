@@ -14,22 +14,25 @@ class Settings(BaseSettings):
     # --- database ---
     db_host: str = "localhost"
     db_port: int = 5432
-    db_user: str = "drishti"
-    db_password: str = "drishti_dev"
-    db_name: str = "drishti"
+    db_user: str = "ibvap"
+    db_password: str = "ibvap_dev"
+    db_name: str = "ibvap"
 
     # --- object storage ---
     minio_endpoint: str = "localhost:9000"
-    minio_access_key: str = "drishti"
-    minio_secret_key: str = "drishti_dev_secret"
+    minio_access_key: str = "ibvap"
+    minio_secret_key: str = "ibvap_dev_secret"
     minio_secure: bool = False
-    minio_bucket_evidence: str = "drishti-evidence"
-    minio_bucket_clips: str = "drishti-clips"
+    minio_bucket_evidence: str = "ibvap-evidence"
+    minio_bucket_clips: str = "ibvap-clips"
 
     # --- cache / bus ---
     redis_url: str = "redis://localhost:6379/0"
-    alert_stream: str = "drishti:alerts"
-    live_track_stream: str = "drishti:live"
+    alert_stream: str = "ibvap:alerts"
+    live_track_stream: str = "ibvap:live"
+    # Written by the worker (sinks.HealthPublisher) with a TTL; read by
+    # /health. Must match that publisher's default key.
+    worker_health_key: str = "ibvap:health:worker"
 
     # --- media ---
     mediamtx_host: str = "localhost"

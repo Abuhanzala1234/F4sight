@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from drishti_worker.ledger import build_ledger
-from drishti_worker.ledger.mock import MockLedger
+from ibvap_worker.ledger import build_ledger
+from ibvap_worker.ledger.mock import MockLedger
 
 
 def root(seed: str) -> str:

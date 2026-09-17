@@ -151,7 +151,7 @@ class AnchorService:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="DRISHTI-BOP ledger anchoring service")
+    parser = argparse.ArgumentParser(description="IBVAP ledger anchoring service")
     parser.add_argument("--config", default="config")
     parser.add_argument("--profile", default=None)
     parser.add_argument("--site", default=None)
@@ -163,10 +163,10 @@ def main(argv: list[str] | None = None) -> int:
     import os
 
     dsn = (
-        f"postgresql://{os.getenv('DB_USER', 'drishti')}:"
-        f"{os.getenv('DB_PASSWORD', 'drishti_dev')}@"
+        f"postgresql://{os.getenv('DB_USER', 'ibvap')}:"
+        f"{os.getenv('DB_PASSWORD', 'ibvap_dev')}@"
         f"{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/"
-        f"{os.getenv('DB_NAME', 'drishti')}"
+        f"{os.getenv('DB_NAME', 'ibvap')}"
     )
 
     service = AnchorService(

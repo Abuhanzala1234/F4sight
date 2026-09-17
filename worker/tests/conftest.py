@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from helpers import T0, make_detection, make_track
 
-from drishti_worker.types import (
+from ibvap_worker.types import (
     CameraRuntime,
     ZoneKind,
     ZoneRuntime,

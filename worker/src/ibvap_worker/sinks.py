@@ -28,6 +28,7 @@ __all__ = [
     "AlertRecord",
     "AlertSink",
     "FanoutSink",
+    "HealthPublisher",
     "LiveTrackPublisher",
     "MinioSink",
     "NullSink",
@@ -239,7 +240,7 @@ class PostgresSink:
 class RedisSink:
     """Publishes to a capped Redis Stream for API WebSocket fan-out (§9)."""
 
-    def __init__(self, url: str, stream: str = "drishti:alerts", maxlen: int = 10_000) -> None:
+    def __init__(self, url: str, stream: str = "ibvap:alerts", maxlen: int = 10_000) -> None:
         self.url = url
         self.stream = stream
         self.maxlen = maxlen
@@ -278,7 +279,7 @@ class LiveTrackPublisher:
     stream's history replay.
     """
 
-    def __init__(self, url: str, stream: str = "drishti:live", maxlen: int = 500) -> None:
+    def __init__(self, url: str, stream: str = "ibvap:live", maxlen: int = 500) -> None:
         self.url = url
         self.stream = stream
         self.maxlen = maxlen
@@ -291,8 +292,21 @@ class LiveTrackPublisher:
             self._client = redis.Redis.from_url(self.url, decode_responses=True)
         return self._client
 
-    def publish(self, camera_id: str, ts_utc: datetime, tracks: list[dict[str, Any]]) -> None:
-        payload = {"camera_id": camera_id, "ts": ts_utc.isoformat(), "tracks": tracks}
+    def publish(
+        self,
+        camera_id: str,
+        ts_utc: datetime,
+        tracks: list[dict[str, Any]],
+        frame_w: int,
+        frame_h: int,
+    ) -> None:
+        payload = {
+            "camera_id": camera_id,
+            "ts": ts_utc.isoformat(),
+            "tracks": tracks,
+            "frame_w": frame_w,
+            "frame_h": frame_h,
+        }
         try:
             self._redis().xadd(
                 self.stream,
@@ -312,6 +326,52 @@ class LiveTrackPublisher:
         return "live-tracks"
 
 
+class HealthPublisher:
+    """Publishes the worker's own per-camera health for the API to read.
+
+    The API cannot see any of this for itself: stream state, measured input
+    fps, the EVQM profile in force and the reconnect count all live in the
+    worker's memory, in a different process. Until this existed, /health
+    reported on Postgres, Redis and MinIO -- every dependency except the one
+    thing an operator actually asks the dashboard ("are the cameras up?") --
+    and answered it with an empty list.
+
+    A single key with a TTL rather than a stream, because only the latest
+    snapshot is ever interesting, and the TTL is the point: if the worker dies,
+    the key expires and the API reports cameras as stale instead of cheerfully
+    serving the last thing it heard before the process went away. Same
+    fail-soft contract as LiveTrackPublisher -- this is telemetry, not
+    evidence, so a Redis hiccup must never touch the pipeline.
+    """
+
+    def __init__(self, url: str, key: str = "ibvap:health:worker", ttl_s: int = 30) -> None:
+        self.url = url
+        self.key = key
+        self.ttl_s = ttl_s
+        self._client: Any = None
+
+    def _redis(self) -> Any:
+        if self._client is None:
+            import redis
+
+            self._client = redis.Redis.from_url(self.url, decode_responses=True)
+        return self._client
+
+    def publish(self, snapshot: dict[str, Any]) -> None:
+        try:
+            self._redis().set(
+                self.key,
+                json.dumps(snapshot, separators=(",", ":"), default=str),
+                ex=self.ttl_s,
+            )
+        except Exception:
+            logger.debug("health publish failed (non-fatal)", exc_info=True)
+
+    @property
+    def name(self) -> str:
+        return "health"
+
+
 class MinioSink:
     """Uploads evidence media to MinIO and returns keys + digests.
 
@@ -327,8 +387,8 @@ class MinioSink:
         secret_key: str,
         *,
         secure: bool = False,
-        bucket_evidence: str = "drishti-evidence",
-        bucket_clips: str = "drishti-clips",
+        bucket_evidence: str = "ibvap-evidence",
+        bucket_clips: str = "ibvap-clips",
     ) -> None:
         self.endpoint = endpoint
         self.access_key = access_key

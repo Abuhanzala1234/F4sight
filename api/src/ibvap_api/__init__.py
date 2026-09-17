@@ -1,4 +1,4 @@
-"""DRISHTI-BOP API.
+"""IBVAP API.
 
 REST + WebSocket surface over the alerts the worker produces (BUILD_SPEC §8, §9).
 Async throughout — this layer is I/O bound, unlike the worker's threaded hot

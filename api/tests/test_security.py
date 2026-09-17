@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from drishti_api.security import (
+from ibvap_api.security import (
     ROLE_ORDER,
     LoginRateLimiter,
     Principal,
@@ -14,7 +14,7 @@ from drishti_api.security import (
     hash_password,
     verify_password,
 )
-from drishti_api.settings import Settings
+from ibvap_api.settings import Settings
 
 
 @pytest.fixture

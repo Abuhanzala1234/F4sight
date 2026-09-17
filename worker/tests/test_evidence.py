@@ -14,7 +14,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from drishti_worker.evidence import (
+from ibvap_worker.evidence import (
     EXCLUDED_FIELDS,
     assemble,
     canonicalise,

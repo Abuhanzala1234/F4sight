@@ -7,8 +7,8 @@ from datetime import timedelta
 import pytest
 from helpers import T0, make_track
 
-from drishti_worker.risk import RiskConfig
-from drishti_worker.rules import (
+from ibvap_worker.risk import RiskConfig
+from ibvap_worker.rules import (
     DebounceConfig,
     Debouncer,
     Decision,
@@ -17,7 +17,7 @@ from drishti_worker.rules import (
     in_window,
     zone_active,
 )
-from drishti_worker.types import ZoneKind, ZoneRuntime
+from ibvap_worker.types import ZoneKind, ZoneRuntime
 
 RULES = RuleConfig()
 RISK = RiskConfig()
@@ -409,3 +409,138 @@ def test_rule_config_from_mapping():
     assert cfg.min_hits == 7
     assert cfg.loiter_seconds == 12
     assert cfg.min_track_age_frames == 8
+
+
+class TestGroupMotion:
+    """Coordinated movement of several people — the case no per-track rule can
+    see, because every member may stay outside every zone the whole time."""
+
+    WINDOW = RuleConfig().group_window_frames
+
+    def _walk(self, x_from: float, x_to: float) -> tuple[tuple[float, float], ...]:
+        """A straight, evenly-paced walk along y=0, WINDOW points long."""
+        steps = self.WINDOW - 1
+        return tuple((x_from + (x_to - x_from) * k / steps, 0.0) for k in range(self.WINDOW))
+
+    def _group(self, walks: list[tuple[float, float]]) -> list:
+        return [
+            make_track(track_id=i, history=self._walk(a, b))
+            for i, (a, b) in enumerate(walks, start=1)
+        ]
+
+    def test_converging_group_fires(self, camera):
+        # Two people closing on a third standing still in the middle.
+        tracks = self._group([(0.0, 180.0), (400.0, 220.0), (200.0, 200.0)])
+        signals = RuleEngine(RULES, RISK).evaluate(tracks, camera, [], T0, "day")
+        fired = [s for sigs in signals.values() for s in sigs if s.code == "GROUP_CONVERGING"]
+        assert len(fired) == 1
+        assert fired[0].detail["person_count"] == 3
+        assert fired[0].detail["spread_to_px"] < fired[0].detail["spread_from_px"]
+
+    def test_dispersing_group_fires(self, camera):
+        tracks = self._group([(180.0, 0.0), (220.0, 400.0), (200.0, 200.0)])
+        signals = RuleEngine(RULES, RISK).evaluate(tracks, camera, [], T0, "day")
+        assert any(s.code == "GROUP_DISPERSING" for sigs in signals.values() for s in sigs)
+
+    def test_one_signal_per_group_not_one_per_member(self, camera):
+        """A converging group of six must produce one alert, not six — the same
+        contract CrowdFormingRule keeps, and for the same reason."""
+        tracks = self._group(
+            [(0.0, 190.0), (400.0, 210.0), (10.0, 195.0), (390.0, 205.0), (20.0, 198.0)]
+        )
+        signals = RuleEngine(RULES, RISK).evaluate(tracks, camera, [], T0, "day")
+        fired = [s for sigs in signals.values() for s in sigs if s.code == "GROUP_CONVERGING"]
+        assert len(fired) == 1
+        # And it is reported against the lowest track id.
+        owner = next(
+            tid for tid, sigs in signals.items() if any(s.code == "GROUP_CONVERGING" for s in sigs)
+        )
+        assert owner == min(t.track_id for t in tracks)
+
+    def test_two_people_are_not_a_group(self, camera):
+        tracks = self._group([(0.0, 190.0), (400.0, 210.0)])
+        signals = RuleEngine(RULES, RISK).evaluate(tracks, camera, [], T0, "day")
+        assert not any(s.code.startswith("GROUP_") for sigs in signals.values() for s in sigs)
+
+    def test_a_group_walking_together_is_not_converging(self, camera):
+        """Three people crossing the field in formation keep their spread. This
+        is the patrol, and it must stay silent."""
+        tracks = self._group([(0.0, 300.0), (200.0, 500.0), (400.0, 700.0)])
+        signals = RuleEngine(RULES, RISK).evaluate(tracks, camera, [], T0, "day")
+        assert not any(s.code.startswith("GROUP_") for sigs in signals.values() for s in sigs)
+
+    def test_disabled_by_config(self, camera):
+        cfg = RuleConfig(group_motion=False)
+        tracks = self._group([(0.0, 180.0), (400.0, 220.0), (200.0, 200.0)])
+        signals = RuleEngine(cfg, RISK).evaluate(tracks, camera, [], T0, "day")
+        assert not any(s.code.startswith("GROUP_") for sigs in signals.values() for s in sigs)
+
+
+class TestFastMovement:
+    """Running, measured in body-heights per second so the threshold means the
+    same thing at any distance from the camera."""
+
+    def _walker(self, step_px: float, box_h: float = 200.0, track_id: int = 1):
+        """A track moving `step_px` per frame with a box `box_h` tall."""
+        hist = tuple((100.0 + step_px * k, 400.0) for k in range(6))
+        return make_track(
+            track_id=track_id,
+            box=(100.0, 400.0 - box_h, 140.0, 400.0),
+            history=hist,
+        )
+
+    def test_walking_does_not_fire(self, camera):
+        # 200px-tall person moving 25px/frame at 6fps = 150px/s = 0.75 heights/s.
+        walking = self._walker(step_px=25.0)
+        signals = RuleEngine(RULES, RISK).evaluate([walking], camera, [], T0, "day")
+        assert not any(s.code == "FAST_MOVEMENT" for sigs in signals.values() for s in sigs)
+
+    def test_running_fires(self, camera):
+        # 100px/frame at 6fps = 600px/s over a 200px person = 3.0 heights/s.
+        running = self._walker(step_px=100.0)
+        signals = RuleEngine(RULES, RISK).evaluate([running], camera, [], T0, "day")
+        fired = [s for sigs in signals.values() for s in sigs if s.code == "FAST_MOVEMENT"]
+        assert len(fired) == 1
+        assert fired[0].detail["heights_per_s"] == pytest.approx(3.0, abs=0.01)
+
+    def test_a_tracker_id_switch_is_discarded_not_escalated(self, camera):
+        """THE false positive that matters. An id switch between two people
+        standing apart looks arbitrarily fast, and always clears any running
+        threshold. It is a bookkeeping error, not a sprinting intruder."""
+        teleport = self._walker(step_px=1000.0)  # 30 heights/s -- not a human
+        signals = RuleEngine(RULES, RISK).evaluate([teleport], camera, [], T0, "day")
+        assert not any(s.code == "FAST_MOVEMENT" for sigs in signals.values() for s in sigs)
+
+    def test_the_threshold_is_scale_invariant(self, camera):
+        """The same real speed at two distances must give the same answer. A
+        px/s threshold would fire on the near one and miss the far one."""
+        near = self._walker(step_px=100.0, box_h=200.0, track_id=1)  # 3.0 heights/s
+        far = self._walker(step_px=25.0, box_h=50.0, track_id=2)  # also 3.0
+        engine = RuleEngine(RULES, RISK)
+        signals = engine.evaluate([near, far], camera, [], T0, "day")
+        fired = {
+            tid: [s for s in sigs if s.code == "FAST_MOVEMENT"] for tid, sigs in signals.items()
+        }
+        assert len(fired.get(1, [])) == 1
+        assert len(fired.get(2, [])) == 1
+        assert fired[1][0].detail["heights_per_s"] == pytest.approx(
+            fired[2][0].detail["heights_per_s"], abs=0.01
+        )
+
+    def test_a_stationary_person_is_silent(self, camera):
+        still = make_track(history=tuple((300.0, 400.0) for _ in range(6)))
+        signals = RuleEngine(RULES, RISK).evaluate([still], camera, [], T0, "day")
+        assert not any(s.code == "FAST_MOVEMENT" for sigs in signals.values() for s in sigs)
+
+    def test_vehicles_are_not_people(self, camera):
+        """A car doing 40km/h is a car, not a suspicious sprint."""
+        fast_car = self._walker(step_px=100.0)
+        car = make_track(cls="vehicle", box=fast_car.box, history=fast_car.history)
+        signals = RuleEngine(RULES, RISK).evaluate([car], camera, [], T0, "day")
+        assert not any(s.code == "FAST_MOVEMENT" for sigs in signals.values() for s in sigs)
+
+    def test_disabled_by_config(self, camera):
+        cfg = RuleConfig(fast_movement=False)
+        running = self._walker(step_px=100.0)
+        signals = RuleEngine(cfg, RISK).evaluate([running], camera, [], T0, "day")
+        assert not any(s.code == "FAST_MOVEMENT" for sigs in signals.values() for s in sigs)

@@ -20,7 +20,7 @@ from alembic import op
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from drishti_api.models import Base
+from ibvap_api.models import Base
 
 revision = "0001"
 down_revision = None

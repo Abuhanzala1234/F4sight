@@ -7,8 +7,8 @@ from datetime import timedelta
 import pytest
 from helpers import T0
 
-from drishti_worker.track import ByteTracker, TrackerConfig
-from drishti_worker.types import Detection
+from ibvap_worker.track import ByteTracker, TrackerConfig
+from ibvap_worker.types import Detection
 
 
 def person(x: float, conf: float = 0.9) -> Detection:

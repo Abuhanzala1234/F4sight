@@ -78,18 +78,27 @@ class FrameTransform:
 
     @staticmethod
     def letterbox(src_wh: tuple[int, int], dst_wh: tuple[int, int]) -> FrameTransform:
-        """Aspect-preserving fit of ``src`` into ``dst`` with centred padding."""
+        """Aspect-preserving fit of ``src`` into ``dst`` with centred padding.
+
+        The padding is derived from the INTEGER resized size and is itself an
+        integer, because the caller cannot place an image at a fractional
+        offset: pipeline resizes to ``int(src * scale)`` and pastes at
+        ``int(pad)``. Computing the padding from the unrounded product instead
+        left ``to_original`` un-padding by up to a pixel more than was ever
+        added, a constant skew on any source whose dimensions do not divide
+        the scale evenly (odd-sized phone streams, typically).
+        """
         sw, sh = src_wh
         dw, dh = dst_wh
         if sw <= 0 or sh <= 0 or dw <= 0 or dh <= 0:
             raise ValueError(f"degenerate letterbox: src={src_wh} dst={dst_wh}")
         scale = min(dw / sw, dh / sh)
-        new_w, new_h = sw * scale, sh * scale
+        new_w, new_h = int(sw * scale), int(sh * scale)
         return FrameTransform(
             scale_x=scale,
             scale_y=scale,
-            pad_x=(dw - new_w) / 2.0,
-            pad_y=(dh - new_h) / 2.0,
+            pad_x=float((dw - new_w) // 2),
+            pad_y=float((dh - new_h) // 2),
         )
 
     def to_original(self, b: BoxXYXY) -> BoxXYXY:

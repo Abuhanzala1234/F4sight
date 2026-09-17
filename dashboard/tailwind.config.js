@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // F4SIGHT palette — "night watch": deep navy-black with warm gold
+        // IBVAP palette — "night watch": deep navy-black with warm gold
         // accents, not a flat instrument-panel grey. Every component uses
         // these semantic names rather than raw colours, so retheming here
         // reskins the whole app in one place.
@@ -22,7 +22,7 @@ export default {
         alarm: '#F16565',
         ember: '#FB923C',
 
-        // Public-facing "F4SIGHT" landing palette — same night-watch family,
+        // Public-facing "IBVAP" landing palette — same night-watch family,
         // used directly (not via the semantic names) on the landing page.
         paper: '#070B14',
         ink: '#F4F7FC',

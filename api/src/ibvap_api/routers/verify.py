@@ -15,9 +15,9 @@ import hashlib
 import logging
 from typing import Annotated
 
-from drishti_worker.evidence import canonicalise, strip_excluded
-from drishti_worker.evidence import verify as verify_doc
-from drishti_worker.merkle import verify_proof
+from ibvap_worker.evidence import canonicalise, strip_excluded
+from ibvap_worker.evidence import verify as verify_doc
+from ibvap_worker.merkle import verify_proof
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -199,7 +199,7 @@ async def verify_document(payload: DocumentVerifyIn) -> VerificationOut:
     checks = [
         VerificationCheck(
             name="schema",
-            passed=document.get("schema") == "drishti.evidence/v1",
+            passed=document.get("schema") == "ibvap.evidence/v1",
             detail=f"schema={document.get('schema')!r}",
         ),
         VerificationCheck(

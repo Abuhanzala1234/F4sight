@@ -1,4 +1,4 @@
-// Package main implements evidencecc — the DRISHTI-BOP evidence anchoring
+// Package main implements evidencecc — the IBVAP evidence anchoring
 // chaincode (BUILD_SPEC §7.12).
 //
 // It stores Merkle roots, nothing else. No evidence, no images, no plate text,

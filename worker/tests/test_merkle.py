@@ -9,7 +9,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from drishti_worker.merkle import (
+from ibvap_worker.merkle import (
     LEAF_PREFIX,
     NODE_PREFIX,
     build_tree,

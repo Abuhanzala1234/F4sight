@@ -1,4 +1,4 @@
-# DRISHTI-BOP — BUILD SPEC
+# IBVAP — BUILD SPEC
 
 > **Authoritative.** `CLAUDE.md` defers to this document. Interface contracts in §7 are
 > frozen; changing one requires an explicit note and a spec edit in the same commit.
@@ -8,7 +8,7 @@
 | Problem statement | SIH 2026 · PS 26187 · *AI-Based Intelligent Video Analytics Platform for Border Surveillance using existing CCTV Infrastructure* |
 | Theme | Blockchain & Cybersecurity (Software) |
 | Team | SW-73 — ByteForge |
-| Codename | DRISHTI-BOP (*Detection, Recognition & Intelligent Surveillance for High-Threat Infrastructure — Border Out Post*) |
+| Codename | IBVAP (*Detection, Recognition & Intelligent Surveillance for High-Threat Infrastructure — Border Out Post*) |
 | Spec version | 1.0.0 |
 
 ---
@@ -89,7 +89,7 @@ These are referenced by ID throughout the spec and in `CLAUDE.md`.
                         RTSP (local)│                       │ HLS
                                     ▼                       │
  ┌──────────────────────────────────────────────┐           │
- │ drishti-worker        (one process per host, │           │
+ │ ibvap-worker        (one process per host, │           │
  │                        one thread-group/cam) │           │
  │  ingest → EVQM → enhance → detect → track    │           │
  │        → geometry → rules → risk → debounce  │           │
@@ -104,7 +104,7 @@ These are referenced by ID throughout the spec and in `CLAUDE.md`.
       │        └──────┬─────┘       │                       │
       ▼               ▼             ▼                       │
  ┌──────────────────────────────────────────────┐           │
- │ drishti-api     (FastAPI, async)             │           │
+ │ ibvap-api     (FastAPI, async)             │           │
  │  REST · WebSocket fan-out · evidence verify  │           │
  └────┬─────────────────────────────┬───────────┘           │
       │ REST/WS                     │ gRPC                  │
@@ -116,8 +116,8 @@ These are referenced by ID throughout the spec and in `CLAUDE.md`.
  └──────────────────────┘   └────────────────┘
 ```
 
-Four deployable processes: `mediamtx`, `drishti-worker`, `drishti-api`,
-`drishti-anchor`. Plus three stateful services: Postgres, MinIO, Redis. The dashboard is
+Four deployable processes: `mediamtx`, `ibvap-worker`, `ibvap-api`,
+`ibvap-anchor`. Plus three stateful services: Postgres, MinIO, Redis. The dashboard is
 static files served by the API in production, Vite in dev.
 
 ### 3.2 Why the worker is one process, threaded
@@ -156,7 +156,7 @@ across all cameras. §7.14 pins the exact queue topology and backpressure rules.
    assembles the evidence document, canonicalises it (RFC 8785) and SHA-256 hashes it.
 10. Sinks (§7.13) insert the alert row, publish to Redis, and enqueue a ledger anchor.
 11. API fans the alert out over WebSocket; the dashboard banners it.
-12. `drishti-anchor` batches hashes into a Merkle tree every `anchor_interval_s`, writes
+12. `ibvap-anchor` batches hashes into a Merkle tree every `anchor_interval_s`, writes
     the root to Fabric, and stores each alert's inclusion proof.
 
 ### 3.4 Latency budget (glass-to-banner)
@@ -256,7 +256,7 @@ analytics frames at 6 fps — comfortably inside tracker association distance.
 
 PostgreSQL. UUIDv7 primary keys everywhere (`uuid7()` in `infra/postgres/init.sql`) —
 time-sortable, which matters for evidence ordering. All timestamps are `TIMESTAMPTZ` in
-UTC; the dashboard localises. Migrations live in `api/src/drishti_api/migrations/`.
+UTC; the dashboard localises. Migrations live in `api/src/ibvap_api/migrations/`.
 
 ### 6.1 Entity relationships
 
@@ -372,7 +372,7 @@ this alert*.
 
 ## 7. Module contracts — **FROZEN**
 
-Every signature below is authoritative. All live in `worker/src/drishti_worker/`.
+Every signature below is authoritative. All live in `worker/src/ibvap_worker/`.
 Shared value types are in `types.py`; all are `@dataclass(frozen=True, slots=True)`.
 
 ```python
@@ -824,7 +824,7 @@ class LedgerBackend(Protocol):
     def health(self) -> LedgerHealth: ...
 
 class MockLedger(LedgerBackend):   # append-only JSONL + SHA-256 chain, on disk
-class FabricLedger(LedgerBackend): # Fabric Gateway, channel 'drishti', cc 'evidencecc'
+class FabricLedger(LedgerBackend): # Fabric Gateway, channel 'ibvap', cc 'evidencecc'
 ```
 
 Merkle (`merkle.py`, pure, property-tested):
@@ -840,7 +840,7 @@ def verify_proof(leaf: str, proof, root: str) -> bool: ...
 - Odd node count duplicates the last node — and `hypothesis` tests every tree size 1..257
   because that is where off-by-one lives.
 - **Anchoring never blocks alerting (Invariant).** `alert.ledger_status='pending'` is a
-  perfectly good alert. `drishti-anchor` drains the queue every `anchor_interval_s`
+  perfectly good alert. `ibvap-anchor` drains the queue every `anchor_interval_s`
   (default 30) and retries with backoff forever. `make demo` runs with `backend=mock`.
 
 ### 7.13 Sinks — `sinks.py`
@@ -850,14 +850,14 @@ class AlertSink(Protocol):
     def emit(self, alert: AlertRecord) -> None: ...
 
 class PostgresSink:  # single INSERT ... RETURNING, one txn, alert + evidence_items
-class RedisSink:     # XADD drishti:alerts, capped at 10k
+class RedisSink:     # XADD ibvap:alerts, capped at 10k
 class MinioSink:     # put_object for snapshot/clip, returns keys + sha256
 class NullSink:      # tests
 ```
 
 All sinks are **fail-soft**: a sink raising is logged with full context and the pipeline
 continues. Losing the Redis publish must not lose the DB row. Sink failures increment
-`drishti_sink_failures_total{sink=…}` and turn the dashboard's health dot amber.
+`ibvap_sink_failures_total{sink=…}` and turn the dashboard's health dot amber.
 
 ### 7.14 Pipeline — `pipeline.py`
 
@@ -998,7 +998,7 @@ config/
 ```
 
 Merge order (later wins): `defaults` → `profiles/<profile>` → `sites/<site>` → env
-(`DRISHTI__RULES__LOITER__SECONDS=45`) → CLI flags. Loaded once at start into a frozen
+(`IBVAP__RULES__LOITER__SECONDS=45`) → CLI flags. Loaded once at start into a frozen
 Pydantic model; `config_version` = SHA-256 of the merged document, written to every alert.
 A running worker never reloads config silently — a change means a restart and a new
 `config_version`, so every alert is attributable to an exact ruleset.

@@ -1,4 +1,4 @@
-# Running F4SIGHT
+# Running IBVAP
 
 One command, from a terminal:
 

@@ -32,14 +32,14 @@ for _stream in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker" / "src"))
 
-from drishti_worker.config import load_config
-from drishti_worker.detect import DetectorConfig, build_detector
-from drishti_worker.enhance import EnhanceConfig, enhance_for_model
-from drishti_worker.evqm import EVQM, EVQMConfig
-from drishti_worker.risk import RiskConfig, RiskContext, score
-from drishti_worker.rules import RuleConfig, RuleEngine
-from drishti_worker.track import ByteTracker, TrackerConfig
-from drishti_worker.types import (
+from ibvap_worker.config import load_config
+from ibvap_worker.detect import DetectorConfig, build_detector
+from ibvap_worker.enhance import EnhanceConfig, enhance_for_model
+from ibvap_worker.evqm import EVQM, EVQMConfig
+from ibvap_worker.risk import RiskConfig, RiskContext, score
+from ibvap_worker.rules import RuleConfig, RuleEngine
+from ibvap_worker.track import ByteTracker, TrackerConfig
+from ibvap_worker.types import (
     CameraRuntime,
     Detection,
     Frame,
@@ -139,7 +139,7 @@ def main() -> int:
         "A/B a GPU against CPU on a given machine without editing config "
         "files. load_config() is called with environ={} on purpose (bench "
         "numbers must be a function of committed config, not whoever's shell "
-        "happened to have a stray DRISHTI__ variable set), so this flag is "
+        "happened to have a stray IBVAP__ variable set), so this flag is "
         "the supported way to override providers for a one-off run.",
     )
     args = parser.parse_args()
@@ -282,14 +282,14 @@ def main() -> int:
         )
     )
 
-    from drishti_worker.types import Signal
+    from ibvap_worker.types import Signal
 
     signals = [Signal("ZONE_INTRUSION", 40.0, {}), Signal("NIGHT_MOVEMENT", 20.0, {})]
     results.append(
         bench_stage("risk score", lambda _: score(signals, RiskContext()), args.iterations)
     )
 
-    from drishti_worker.evidence import assemble, evidence_hash
+    from ibvap_worker.evidence import assemble, evidence_hash
 
     doc = assemble(
         alert_id="bench",

@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from drishti_worker.evqm import (
+from ibvap_worker.evqm import (
     DAY,
     DEGRADED,
     FOG,
@@ -16,7 +16,7 @@ from drishti_worker.evqm import (
     ProfileHysteresis,
     profile_vote,
 )
-from drishti_worker.types import QualityMetrics
+from ibvap_worker.types import QualityMetrics
 
 CFG = EVQMConfig()
 

@@ -12,7 +12,15 @@ detector:
   # laptop profile usable; CUDA/TensorRT take over on a real box.
   providers: [TensorrtExecutionProvider, CUDAExecutionProvider,
               CoreMLExecutionProvider, CPUExecutionProvider]
-  intra_op_threads: 0        # 0 = ORT decides
+  # NOT 0 ("ORT decides"), which means one thread per core PER SESSION -- and
+  # the worker loads three sessions (detect, pose, weapon), so on a 12-core
+  # box that alone asked for 36 compute threads before a single camera was
+  # decoded. Measured with 4 cameras running: 168 threads on 12 cores and
+  # per-frame inference at 400ms, against ~57ms for the same model when the
+  # pools were not fighting each other. The cores were pinned context
+  # switching, not inferring. A small model at this input size gets nearly all
+  # of its threading benefit in the first few threads anyway.
+  intra_op_threads: 4
   fp16: true                 # ignored on CPU; passed to TensorRT as trt_fp16_enable
 
   # GPU tuning. Inert on CPU and CoreML, so these are safe to leave set.

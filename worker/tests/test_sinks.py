@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from drishti_worker.sinks import AlertRecord, FanoutSink, NullSink, SpoolSink
+from ibvap_worker.sinks import AlertRecord, FanoutSink, NullSink, SpoolSink
 
 
 def record(alert_id: str = "a-1") -> AlertRecord:
@@ -27,7 +27,7 @@ def record(alert_id: str = "a-1") -> AlertRecord:
         window_start="2026-09-12T21:59:50+00:00",
         window_end="2026-09-12T22:00:00+00:00",
         evidence_hash="ab" * 32,
-        evidence_doc={"schema": "drishti.evidence/v1"},
+        evidence_doc={"schema": "ibvap.evidence/v1"},
     )
 
 

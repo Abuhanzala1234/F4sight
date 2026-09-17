@@ -27,7 +27,7 @@ where a quick glance suggests. The working method: run the actual tracker,
 dump every confirmed track's foot-point x-coordinate over time, and place the
 tripwire only where a real track's x-coordinate is mathematically confirmed to
 cross it. See `/tmp/trace_clip.py`-style trajectory dumps (not committed;
-reproducible from `worker/src/drishti_worker/track.py` output).
+reproducible from `worker/src/ibvap_worker/track.py` output).
 
 ## Headline
 

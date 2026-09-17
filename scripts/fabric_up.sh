@@ -6,7 +6,7 @@
 # demo` uses it. If this script fails, the demo is unaffected.
 set -euo pipefail
 
-CHANNEL="${CHANNEL:-drishti}"
+CHANNEL="${CHANNEL:-ibvap}"
 CC_NAME="${CC_NAME:-evidencecc}"
 CC_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/fabric/chaincode/evidencecc"
 FABRIC_DIR="${FABRIC_DIR:-$HOME/fabric-samples}"

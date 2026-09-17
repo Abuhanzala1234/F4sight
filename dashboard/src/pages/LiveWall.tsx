@@ -30,10 +30,35 @@ export function LiveWall() {
   }
 
   useEffect(() => {
-    api
-      .cameras()
-      .then(setCameras)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'load failed'));
+    let cancelled = false;
+
+    function load(initial: boolean) {
+      api
+        .cameras()
+        .then((next) => {
+          if (cancelled) return;
+          setCameras(next);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          // A failed refresh must not blank a wall that is already showing
+          // cameras -- only the first load has nothing better to display.
+          if (cancelled || !initial) return;
+          setError(err instanceof Error ? err.message : 'load failed');
+        });
+    }
+
+    load(true);
+    // The camera table changes underneath this page: the worker hot-starts a
+    // newly connected camera, an operator on another console connects or
+    // disconnects one, a slot is torn back down. Fetching once on mount left
+    // the wall showing whatever was true when the tab was opened, which on a
+    // console that stays open for a shift is not true for long.
+    const timer = window.setInterval(() => load(false), 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const columns = Math.sqrt(layout);

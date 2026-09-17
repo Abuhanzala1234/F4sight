@@ -37,19 +37,19 @@ for _stream in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker" / "src"))
 
-from drishti_worker.config import load_config
-from drishti_worker.detect import DetectorConfig, build_detector
-from drishti_worker.enhance import EnhanceConfig, enhance_for_model
-from drishti_worker.evqm import EVQM, EVQMConfig
-from drishti_worker.risk import RiskConfig, RiskContext, score
-from drishti_worker.rules import (
+from ibvap_worker.config import load_config
+from ibvap_worker.detect import DetectorConfig, build_detector
+from ibvap_worker.enhance import EnhanceConfig, enhance_for_model
+from ibvap_worker.evqm import EVQM, EVQMConfig
+from ibvap_worker.risk import RiskConfig, RiskContext, score
+from ibvap_worker.rules import (
     DebounceConfig,
     Debouncer,
     RuleConfig,
     RuleEngine,
 )
-from drishti_worker.track import ByteTracker, TrackerConfig
-from drishti_worker.types import (
+from ibvap_worker.track import ByteTracker, TrackerConfig
+from ibvap_worker.types import (
     CameraRuntime,
     Detection,
     FrameTransform,
@@ -88,11 +88,11 @@ def load_zone_specs(path: Path, camera_code: str) -> list[dict]:
 def build_zones(specs: list[dict], width: int, height: int) -> list[ZoneRuntime]:
     """Denormalise zone specs against a clip's real dimensions.
 
-    Mirrors ``drishti_api``/``drishti_worker.__main__._zone`` exactly, so the
+    Mirrors ``ibvap_api``/``ibvap_worker.__main__._zone`` exactly, so the
     eval harness scores against the identical geometry a deployment would use
     for the same zones.json content.
     """
-    from drishti_worker.geometry import denormalise
+    from ibvap_worker.geometry import denormalise
 
     out: list[ZoneRuntime] = []
     for z in specs:
@@ -171,7 +171,7 @@ def run_clip(
         clip_t = index / source_fps
         ts = t0 + timedelta(seconds=clip_t)
 
-        from drishti_worker.types import Frame
+        from ibvap_worker.types import Frame
 
         evqm.observe(Frame("eval", index, ts, image, width, height))
         profile = evqm.profile

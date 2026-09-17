@@ -13,7 +13,15 @@ import { VerifyPanel } from '@/components/VerifyPanel';
  * acknowledge will stop acknowledging, and an un-triaged queue is the same as
  * no queue. j/k move, Enter opens, a acknowledges, t/f adjudicate.
  */
-export function Alerts({ live }: { live: AlertSummary[] }) {
+export function Alerts({
+  live,
+  connected,
+}: {
+  live: AlertSummary[];
+  /** Live-socket state, used to close the gap after a drop — see the replay
+   * effect below. */
+  connected: boolean;
+}) {
   const [alerts, setAlerts] = useState<AlertSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<number>(0);
@@ -38,6 +46,21 @@ export function Alerts({ live }: { live: AlertSummary[] }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Close the gap after a socket drop. ws.ts reconnects on its own, but an
+  // alert raised while it was down was never pushed to anyone -- so without
+  // this the list silently omits it until somebody reloads the page, which is
+  // precisely the failure the socket was supposed to be immune to. The REST
+  // feed is the source of truth; the socket is only an accelerator.
+  //
+  // Guarded on having been connected before, so the first connect after mount
+  // does not immediately refetch what the load above just fetched.
+  const wasConnectedRef = useRef(false);
+  useEffect(() => {
+    if (!connected) return;
+    if (wasConnectedRef.current) void load();
+    wasConnectedRef.current = true;
+  }, [connected, load]);
 
   // Live arrivals are merged in at the top rather than replacing the list, so
   // an operator mid-triage does not lose their place.

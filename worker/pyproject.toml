@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "drishti-worker"
+name = "ibvap-worker"
 version = "1.0.0"
-description = "DRISHTI-BOP analytics worker — ingest, detect, track, score, evidence"
+description = "IBVAP analytics worker — ingest, detect, track, score, evidence"
 requires-python = ">=3.11"
 license = {text = "AGPL-3.0-or-later"}
 dependencies = [
@@ -42,7 +42,7 @@ gpu = ["onnxruntime-gpu>=1.17"]
 anpr = ["pytesseract>=0.3.10"]
 
 [project.scripts]
-drishti-worker = "drishti_worker.__main__:main"
+ibvap-worker = "ibvap_worker.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -83,11 +83,11 @@ markers = [
 # single rule raising must never stop the pipeline. Every one of these catches
 # logs with full context first — that is the rule CLAUDE.md actually states
 # ("no silent failures"), not "never catch broadly".
-"src/drishti_worker/sinks.py" = ["BLE001"]
-"src/drishti_worker/enhance.py" = ["BLE001"]
-"src/drishti_worker/pipeline.py" = ["BLE001"]
-"src/drishti_worker/ingest.py" = ["BLE001"]
-"src/drishti_worker/ledger/*.py" = ["BLE001"]
-"src/drishti_worker/detect/*.py" = ["BLE001", "ARG002"]
+"src/ibvap_worker/sinks.py" = ["BLE001"]
+"src/ibvap_worker/enhance.py" = ["BLE001"]
+"src/ibvap_worker/pipeline.py" = ["BLE001"]
+"src/ibvap_worker/ingest.py" = ["BLE001"]
+"src/ibvap_worker/ledger/*.py" = ["BLE001"]
+"src/ibvap_worker/detect/*.py" = ["BLE001", "ARG002"]
 # Tests import fixtures from a sibling module and use throwaway stubs.
 "tests/*" = ["ARG002", "C408", "SLF001"]

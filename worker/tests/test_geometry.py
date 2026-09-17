@@ -9,7 +9,7 @@ from helpers import make_track
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from drishti_worker.geometry import (
+from ibvap_worker.geometry import (
     crossing_direction,
     denormalise,
     dwell_seconds,
@@ -19,10 +19,11 @@ from drishti_worker.geometry import (
     polygon_area,
     polygon_centroid,
     segments_intersect,
+    speed_body_heights_per_s,
     speed_m_per_s,
     speed_px_per_s,
 )
-from drishti_worker.types import Calibration
+from ibvap_worker.types import Calibration
 
 SQUARE = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
 coords = st.floats(min_value=-1e4, max_value=1e4, allow_nan=False, allow_infinity=False)
@@ -202,3 +203,44 @@ class TestTrackMeasures:
     def test_bad_fps_raises(self):
         with pytest.raises(ValueError):
             speed_px_per_s(make_track(), 0.0)
+
+
+class TestBodyHeightSpeed:
+    """Speed in body-heights/s — the scale-invariant measure FAST_MOVEMENT uses.
+
+    Pixels per second is not comparable to anything: the same person running at
+    the same speed reads huge near the camera and tiny far away, so a px/s
+    threshold is really a threshold on proximity.
+    """
+
+    def _track(self, step_px, box_h):
+        return make_track(
+            box=(100.0, 400.0 - box_h, 140.0, 400.0),
+            history=tuple((100.0 + step_px * k, 400.0) for k in range(6)),
+        )
+
+    def test_known_value(self):
+        # 100 px/frame at 6 fps = 600 px/s; over a 200 px person that is 3.0.
+        got = speed_body_heights_per_s(self._track(100.0, 200.0), 6.0)
+        assert got == pytest.approx(3.0, abs=1e-6)
+
+    def test_walking_is_under_one(self):
+        """Sanity against the real world: a walk is ~0.8 heights/s."""
+        got = speed_body_heights_per_s(self._track(25.0, 200.0), 6.0)
+        assert 0.5 < got < 1.0
+
+    def test_degenerate_box_does_not_divide_by_zero(self):
+        flat = make_track(box=(10.0, 50.0, 20.0, 50.0), history=((0.0, 0.0), (99.0, 0.0)))
+        assert speed_body_heights_per_s(flat, 6.0) == 0.0
+
+    @given(st.floats(min_value=0.1, max_value=20.0), st.floats(min_value=1.0, max_value=6.0))
+    @settings(max_examples=100)
+    def test_scale_invariant(self, k, step_ratio):
+        """Shrinking the person and their motion by the same factor -- which is
+        exactly what moving away from the camera does -- must not change the
+        measured speed."""
+        near = self._track(20.0 * step_ratio, 200.0)
+        far = self._track(20.0 * step_ratio / k, 200.0 / k)
+        assert speed_body_heights_per_s(far, 6.0) == pytest.approx(
+            speed_body_heights_per_s(near, 6.0), rel=1e-6
+        )

@@ -35,14 +35,14 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Loud about insecure defaults. A demo on dev secrets is fine; a BOP on
         # them is not, and nobody should have to read the source to find out.
         logger.warning("SECURITY: %s — fine for a demo, not for deployment", warning)
-    logger.info("DRISHTI-BOP API %s starting", __version__)
+    logger.info("IBVAP API %s starting", __version__)
     yield
     await dispose_engine()
-    logger.info("DRISHTI-BOP API stopped")
+    logger.info("IBVAP API stopped")
 
 
 app = FastAPI(
-    title="DRISHTI-BOP API",
+    title="IBVAP API",
     version=__version__,
     description=(
         "AI video analytics for border surveillance on existing CCTV.\n\n"
@@ -100,7 +100,7 @@ app.include_router(ws.router)  # WebSocket paths are not versioned
 @app.get("/api", include_in_schema=False)
 async def root() -> dict[str, str]:
     return {
-        "name": "DRISHTI-BOP",
+        "name": "IBVAP",
         "version": __version__,
         "problem_statement": "SIH 2026 · PS 26187",
         "team": "SW-73 (ByteForge)",

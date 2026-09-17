@@ -31,7 +31,7 @@ const TILES: Tile[] = [
   { label: 'Zones & Geofence', sub: 'Tripwires, areas', icon: IconMapPin, tone: 'navy3' },
   { label: 'Evidence Vault', sub: 'RFC 8785 hashed', icon: IconLock, tone: 'navy' },
   { label: 'Reports & Analytics', sub: 'Site throughput', icon: IconChart, tone: 'gold' },
-  { label: 'About F4SIGHT', sub: 'SIH 2026 · PS 26187', icon: IconInfo, tone: 'navy2' },
+  { label: 'About IBVAP', sub: 'SIH 2026 · PS 26187', icon: IconInfo, tone: 'navy2' },
 ];
 
 const TONE_STYLE: Record<Tile['tone'], string> = {
@@ -85,7 +85,7 @@ export function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }
         <div className="mx-auto flex max-w-[1180px] items-center gap-4 px-5 py-3.5 sm:px-8">
           <Emblem className="h-9 w-9 shrink-0 animate-spin-slow text-gold" />
           <h1 className="font-display text-[1.45rem] font-bold leading-none tracking-[0.03em] text-white">
-            F4SIGHT
+            IBVAP
           </h1>
           <div className="ml-auto flex items-center gap-4">
             <p className="hidden text-right text-[10.5px] font-semibold uppercase leading-tight tracking-[0.14em] text-white/35 sm:block">
@@ -162,7 +162,7 @@ export function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }
             className="mt-6 max-w-lg animate-sweep-in text-[15.5px] leading-relaxed text-white/55"
             style={{ animationDelay: '120ms' }}
           >
-            F4SIGHT turns cameras already on the fence line into a live intrusion-detection
+            IBVAP turns cameras already on the fence line into a live intrusion-detection
             network — person and vehicle tracking, cryptographically verifiable evidence, and
             alerts an operator can act on. Built end to end, free, for Smart India Hackathon 2026.
           </p>
@@ -219,7 +219,7 @@ export function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }
               <br className="hidden sm:block" /> Most of them are never watched.
             </h3>
             <p className="mt-5 max-w-xl text-[14.5px] leading-[1.8] text-white/50">
-              F4SIGHT is a free, self-hosted analytics layer for existing CCTV: detection and
+              IBVAP is a free, self-hosted analytics layer for existing CCTV: detection and
               tracking run on-device, zone and tripwire rules turn a crossing into a scored
               alert, and every alert carries evidence — snapshot, clip, and a canonicalised
               hash — an investigator can independently verify later.
@@ -303,7 +303,7 @@ export function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }
 
               <p className="mt-6 flex items-start gap-2 border-t border-white/10 pt-4 text-[11.5px] leading-relaxed text-white/35">
                 <IconLock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Face analytics is disabled by default. No automated response — F4SIGHT
+                Face analytics is disabled by default. No automated response — IBVAP
                 recommends, a human decides.
               </p>
             </div>
@@ -318,7 +318,7 @@ export function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }
             <Emblem className="h-7 w-7 shrink-0 text-gold" />
             <div>
               <p className="text-[13px] font-bold uppercase tracking-[0.1em] text-white">
-                F4SIGHT
+                IBVAP
               </p>
               <p className="text-[11.5px] text-white/35">
                 Smart India Hackathon 2026 · PS 26187 · Team SW-73 (ByteForge)

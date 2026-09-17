@@ -44,7 +44,10 @@ from .geometry import (
     perpendicular_travel,
     point_in_polygon,
     point_to_segment_distance,
+    speed_body_heights_per_s,
+    speed_m_per_s,
 )
+from .group import classify_group_motion, spread_series
 from .risk import RiskConfig, loiter_signal
 from .types import CameraRuntime, Signal, Track, ZoneKind, ZoneRuntime
 
@@ -94,6 +97,11 @@ class RuleContext:
     tamper_suspected: bool = False
     plate_hit: Mapping[str, Any] | None = None
     face_hit: Mapping[str, Any] | None = None
+    #: Settled hand signal for ONE track (§7.7, gestures). A single slot, like
+    #: ``plate_hit`` -- the rule checks the track_id inside it matches.
+    gesture_hit: Mapping[str, Any] | None = None
+    #: Settled weapon detection for ONE track (§7.7, weapons). Same contract.
+    weapon_hit: Mapping[str, Any] | None = None
     in_patrol_window: bool = False
 
 
@@ -143,6 +151,22 @@ class RuleConfig:
     watchlist_face: bool = False
     crowd_forming: bool = True
     crowd_min: int = 4
+    group_motion: bool = True
+    group_min: int = 3
+    group_window_frames: int = 12
+    group_converge_ratio: float = 0.70
+    group_disperse_ratio: float = 1.40
+    group_min_spread_px: float = 60.0
+    hand_signal: bool = True
+    hand_signal_codes: tuple[str, ...] = ("HANDS_UP", "ARM_RAISED", "POINTING")
+    weapon_visible: bool = True
+    fast_movement: bool = True
+    fast_movement_classes: tuple[str, ...] = ("person",)
+    #: Body-heights per second. ~0.8 is walking, ~2.9 is running (geometry.py).
+    fast_heights_per_s: float = 2.0
+    #: Above this it is not a human, it is a tracker id switch.
+    fast_implausible_heights_per_s: float = 8.0
+    fast_window_frames: int = 5
     camera_tamper: bool = True
 
     @classmethod
@@ -161,6 +185,8 @@ class RuleConfig:
             sub("watchlist_face"),
         )
         cf, ct = sub("crowd_forming"), sub("camera_tamper")
+        gm, hs, wv = sub("group_motion"), sub("hand_signal"), sub("weapon_visible")
+        fm = sub("fast_movement")
         window = dict(nm.get("window", {}))
 
         return cls(
@@ -189,6 +215,20 @@ class RuleConfig:
             watchlist_face=bool(wf.get("enabled", False)),
             crowd_forming=bool(cf.get("enabled", True)),
             crowd_min=int(cf.get("crowd_min", 4)),
+            group_motion=bool(gm.get("enabled", True)),
+            group_min=int(gm.get("group_min", 3)),
+            group_window_frames=int(gm.get("window_frames", 12)),
+            group_converge_ratio=float(gm.get("converge_ratio", 0.70)),
+            group_disperse_ratio=float(gm.get("disperse_ratio", 1.40)),
+            group_min_spread_px=float(gm.get("min_spread_px", 60.0)),
+            hand_signal=bool(hs.get("enabled", True)),
+            hand_signal_codes=tuple(hs.get("codes", ("HANDS_UP", "ARM_RAISED", "POINTING"))),
+            weapon_visible=bool(wv.get("enabled", True)),
+            fast_movement=bool(fm.get("enabled", True)),
+            fast_movement_classes=tuple(fm.get("classes", ("person",))),
+            fast_heights_per_s=float(fm.get("heights_per_s", 2.0)),
+            fast_implausible_heights_per_s=float(fm.get("implausible_heights_per_s", 8.0)),
+            fast_window_frames=int(fm.get("window_frames", 5)),
             camera_tamper=bool(ct.get("enabled", True)),
         )
 
@@ -462,6 +502,214 @@ class CrowdFormingRule:
         return None
 
 
+class GroupMotionRule:
+    """Coordinated movement of several people (§7.7, group behaviour).
+
+    Sits next to CrowdFormingRule deliberately and answers the other half of
+    the question: that rule counts heads inside a zone, this one watches what
+    the heads are doing. Camera-wide rather than zone-bound, because a group
+    converging on a fence is outside every zone right up until the moment the
+    warning stops being useful.
+    """
+
+    standalone = True
+    code = "GROUP_MOTION"
+
+    def __init__(self, cfg: RuleConfig, risk: RiskConfig) -> None:
+        self.cfg, self.risk = cfg, risk
+
+    def evaluate(self, track: Track, ctx: RuleContext) -> Signal | None:
+        if not self.cfg.group_motion or track.cls != "person":
+            return None
+
+        people = [t for t in ctx.all_tracks if t.cls == "person" and t.is_confirmed]
+        if len(people) < self.cfg.group_min:
+            return None
+        # One signal per group, not one per member -- same reasoning (and the
+        # same lowest-id convention) as CrowdFormingRule. Checked before the
+        # geometry so five people do not each pay for the same computation.
+        if track.track_id != min(t.track_id for t in people):
+            return None
+
+        series = spread_series(people, self.cfg.group_window_frames)
+        if not series:
+            return None
+        # spread_series drops members without enough history, so re-check the
+        # count against what actually contributed rather than what was offered.
+        contributing = sum(1 for t in people if len(t.history) >= self.cfg.group_window_frames)
+        if contributing < self.cfg.group_min:
+            return None
+
+        motion = classify_group_motion(
+            series,
+            contributing,
+            converge_ratio=self.cfg.group_converge_ratio,
+            disperse_ratio=self.cfg.group_disperse_ratio,
+            min_spread_px=self.cfg.group_min_spread_px,
+        )
+        if motion is None:
+            return None
+
+        return Signal(
+            motion.code,
+            round(self.risk.weight(motion.code), 2),
+            {
+                "person_count": motion.members,
+                "spread_from_px": round(float(motion.spread_from), 1),
+                "spread_to_px": round(float(motion.spread_to), 1),
+                "ratio": round(float(motion.ratio), 3),
+                "window_frames": self.cfg.group_window_frames,
+                "window_seconds": round(self.cfg.group_window_frames / max(ctx.fps, 1e-6), 1),
+            },
+        )
+
+
+class HandSignalRule:
+    """A settled hand signal on a tracked person (§7.7, gestures).
+
+    CONTEXTUAL, never standalone, and the reasoning is NIGHT_MOVEMENT's almost
+    word for word (P3): a person waving in the middle of a field is not an
+    event. Letting this raise on its own would fire on every soldier beckoning
+    a colleague and every civilian shading their eyes — blocker #1 in yet
+    another costume. What it *is* good for is making a real event legible:
+    "crossed the tripwire" and "crossed the tripwire while signalling to
+    somebody off-camera" are different situations, and the second one belongs
+    in the operator's breakdown.
+
+    HANDS_UP carries a NEGATIVE weight and that is deliberate, not a bug. A
+    person showing empty hands is de-escalating, and an additive model that
+    cannot say so is one that only ever shouts louder (P3, and the same
+    mechanism as KNOWN_PATROL_WINDOW).
+    """
+
+    standalone = False
+    code = "HAND_SIGNAL"
+
+    def __init__(self, cfg: RuleConfig, risk: RiskConfig) -> None:
+        self.cfg, self.risk = cfg, risk
+
+    def evaluate(self, track: Track, ctx: RuleContext) -> Signal | None:
+        if not self.cfg.hand_signal or ctx.gesture_hit is None:
+            return None
+        hit = ctx.gesture_hit
+        if hit.get("track_id") != track.track_id:
+            return None
+        code = str(hit.get("code", ""))
+        if code not in self.cfg.hand_signal_codes:
+            return None
+        return Signal(
+            code,
+            round(self.risk.weight(code), 2),
+            {
+                "gesture": code,
+                "gesture_conf": hit.get("conf"),
+                "frames_agreed": hit.get("frames_agreed"),
+            },
+        )
+
+
+class FastMovementRule:
+    """Someone moving much faster than a walk (§7.7).
+
+    Running at a fence line is worth an operator's attention on its own — a
+    rush at a weak point, or somebody breaking away from a patrol — so this is
+    standalone. It is cheap in the way that matters: the tracker has already
+    measured this motion, so there is no model, no crop and no extra inference.
+
+    Measured in body-heights per second, never pixels (see
+    ``speed_body_heights_per_s``). A pixel threshold would really be a
+    threshold on how near the camera somebody is.
+
+    **The guard that matters is the upper one.** A tracker id switch between
+    two people standing apart produces an apparent jump of hundreds of pixels
+    in one frame — arbitrarily fast, and always fast enough to clear any
+    "running" threshold. Reporting that as a sprinting intruder would be
+    inventing an event out of a bookkeeping error, so anything above a speed no
+    human can sustain is discarded as the artefact it is rather than escalated.
+    """
+
+    standalone = True
+    code = "FAST_MOVEMENT"
+
+    def __init__(self, cfg: RuleConfig, risk: RiskConfig) -> None:
+        self.cfg, self.risk = cfg, risk
+
+    def evaluate(self, track: Track, ctx: RuleContext) -> Signal | None:
+        if not self.cfg.fast_movement or track.cls not in self.cfg.fast_movement_classes:
+            return None
+        if len(track.history) < 2:
+            return None
+
+        heights_per_s = speed_body_heights_per_s(track, ctx.fps, self.cfg.fast_window_frames)
+        if heights_per_s < self.cfg.fast_heights_per_s:
+            return None
+        if heights_per_s >= self.cfg.fast_implausible_heights_per_s:
+            # Not a person. A track that teleports is a tracker artefact, and
+            # dropping it silently here is right: it is not evidence of
+            # anything except that association failed for one frame.
+            logger.debug(
+                "camera=%s track=%s discarded implausible speed %.1f heights/s "
+                "(likely an id switch)",
+                ctx.camera.code,
+                track.track_id,
+                heights_per_s,
+            )
+            return None
+
+        detail: dict[str, Any] = {
+            "heights_per_s": round(float(heights_per_s), 2),
+            "threshold": self.cfg.fast_heights_per_s,
+            "class": track.cls,
+        }
+        # A calibrated camera can say this in real units. An uncalibrated one
+        # says nothing rather than inventing a scale (P3).
+        metres = speed_m_per_s(track, ctx.fps, ctx.camera.calibration, self.cfg.fast_window_frames)
+        if metres is not None:
+            detail["speed_m_per_s"] = round(float(metres), 2)
+
+        return Signal(self.code, round(self.risk.weight(self.code), 2), detail)
+
+
+class WeaponVisibleRule:
+    """A weapon confirmed on a tracked person (§7.7, weapons).
+
+    STANDALONE, unlike HandSignalRule — and that asymmetry is the point. A
+    person waving is not an event; a person carrying a firearm at a border post
+    is one whether or not they have crossed anything yet. Waiting for them to
+    also trip a wire would be waiting for the thing the alert exists to prevent.
+
+    The false-positive discipline lives upstream, in weapon.py: a stricter
+    confidence floor than the detector's own, and multi-frame voting, because
+    an umbrella at forty metres is a pistol for exactly one frame. P3's
+    negative modifiers (LOW_CONFIDENCE, DEGRADED_INPUT, SHORT_TRACK) then apply
+    on top automatically, so a weak sighting in fog on a two-second-old track
+    scores visibly lower than a clean one in daylight.
+    """
+
+    standalone = True
+    code = "WEAPON_VISIBLE"
+
+    def __init__(self, cfg: RuleConfig, risk: RiskConfig) -> None:
+        self.cfg, self.risk = cfg, risk
+
+    def evaluate(self, track: Track, ctx: RuleContext) -> Signal | None:
+        if not self.cfg.weapon_visible or ctx.weapon_hit is None:
+            return None
+        hit = ctx.weapon_hit
+        if hit.get("track_id") != track.track_id:
+            return None
+        return Signal(
+            self.code,
+            round(self.risk.weight(self.code), 2),
+            {
+                "weapon_type": hit.get("weapon_type"),
+                "weapon_conf": hit.get("conf"),
+                "frames_agreed": hit.get("frames_agreed"),
+                "frames_seen": hit.get("frames_seen"),
+            },
+        )
+
+
 class UnauthorisedVehicleRule:
     standalone = True
     code = "UNAUTHORISED_VEHICLE"
@@ -564,6 +812,10 @@ class RuleEngine:
             NightMovementRule(cfg, risk),
             PerimeterApproachRule(cfg, risk),
             CrowdFormingRule(cfg, risk),
+            GroupMotionRule(cfg, risk),
+            HandSignalRule(cfg, risk),
+            FastMovementRule(cfg, risk),
+            WeaponVisibleRule(cfg, risk),
             UnauthorisedVehicleRule(cfg, risk),
             WatchlistPlateRule(cfg, risk),
             WatchlistFaceRule(cfg, risk),
@@ -605,6 +857,8 @@ class RuleEngine:
         tamper_suspected: bool = False,
         plate_hit: Mapping[str, Any] | None = None,
         face_hit: Mapping[str, Any] | None = None,
+        gesture_hit: Mapping[str, Any] | None = None,
+        weapon_hit: Mapping[str, Any] | None = None,
         in_patrol_window: bool = False,
     ) -> dict[int, list[Signal]]:
         """Return ``{track_id: [signals]}`` for this frame."""
@@ -630,6 +884,8 @@ class RuleEngine:
                 tamper_suspected=tamper_suspected,
                 plate_hit=plate_hit,
                 face_hit=face_hit,
+                gesture_hit=gesture_hit,
+                weapon_hit=weapon_hit,
                 in_patrol_window=in_patrol_window,
             )
 

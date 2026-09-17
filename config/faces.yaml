@@ -23,3 +23,26 @@ faces:
   # audited admin enrolment through the API.
   retain_non_matching_embeddings: false
   enrolment_requires_audit: true
+
+  # Cost control, same reasoning as gestures/weapons: SCRFD + ArcFace is two
+  # model calls per crop, so this is not a stage to run on every frame of
+  # every person.
+  every_n_frames: 3
+  max_tracks_per_frame: 2
+
+  # Multi-frame voting, for the same reason plates and gestures need it: one
+  # frame of poor alignment or motion blur is a misread, not a match. Naming a
+  # real person on a single frame is also the highest-stakes false positive in
+  # this system (P3), so this is deliberately not skippable.
+  voting:
+    min_frames_agreed: 2
+    window_frames: 6
+
+  # Cheap "has this crop changed" gate in front of the model (activity.py).
+  # Same three guards as gestures/weapons -- see those files' comments. The
+  # warm-up defaults to this stage's own voting window, so the gate can never
+  # skip before a match has had the chance to settle.
+  activity_gate:
+    enabled: true
+    diff_threshold: 0.02
+    max_stale_frames: 60

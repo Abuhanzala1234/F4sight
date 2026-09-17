@@ -9,16 +9,16 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from drishti_worker.detect import (
+from ibvap_worker.detect import (
     Detector,
     DetectorConfig,
     MockDetector,
     build_detector,
     resolve_execution_providers,
 )
-from drishti_worker.detect.onnx_yolo import preprocess_into
-from drishti_worker.pipeline import Pipeline
-from drishti_worker.types import FrameTransform, RawDetection
+from ibvap_worker.detect.onnx_yolo import preprocess_into
+from ibvap_worker.pipeline import Pipeline
+from ibvap_worker.types import FrameTransform, RawDetection
 
 CPU_ONLY = ["CPUExecutionProvider"]
 FULL_GPU_BOX = [
@@ -61,7 +61,7 @@ class TestFactory:
 
         cfg = DetectorConfig(backend="mock", warmup_iterations=10)
         detector = Counting(cfg)
-        from drishti_worker.detect import build_detector as build
+        from ibvap_worker.detect import build_detector as build
 
         # Exercise the same path the factory takes.
         assert detector.warmup(cfg.warmup_iterations) == 0.01

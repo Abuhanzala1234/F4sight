@@ -21,7 +21,7 @@ under 3 minutes, work through in order:
    hash-correct? If not, `make models` (needs network, ~166 MB, once).
 3. `make migrate` — did it apply cleanly? A stuck migration usually means the
    Postgres container isn't actually up yet; `make up` again.
-4. Check the worker's own stderr line: `drishti-worker READY` has to appear.
+4. Check the worker's own stderr line: `ibvap-worker READY` has to appear.
    If the process exits before that, read the last log line — every startup
    failure in `__main__.py` (`check_clock`, `verify_models`, `build_detector`)
    raises `SystemExit` with the fix in the message, not just a traceback.
@@ -98,7 +98,7 @@ stored values. Three real causes, in order of likelihood:
 to the ledger yet (mock or Fabric) — the alert is still fully verifiable against
 its own stored hash. `ledger_status` on the alert row shows the anchor queue depth.
 
-### Ledger (`drishti-anchor`) is down
+### Ledger (`ibvap-anchor`) is down
 
 Per the invariant table: **ledger unavailability never blocks alerting.** Alerts
 keep firing with `ledger_status='pending'`. Bring the anchor service back

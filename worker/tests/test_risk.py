@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from drishti_worker.risk import (
+from ibvap_worker.risk import (
     DEFAULT_WEIGHTS,
     RiskConfig,
     RiskContext,
@@ -14,7 +14,7 @@ from drishti_worker.risk import (
     score,
     severity_for,
 )
-from drishti_worker.types import RiskResult, Signal
+from ibvap_worker.types import RiskResult, Signal
 
 weights = st.floats(min_value=-60, max_value=60, allow_nan=False, allow_infinity=False, width=32)
 codes = st.sampled_from(sorted(DEFAULT_WEIGHTS))

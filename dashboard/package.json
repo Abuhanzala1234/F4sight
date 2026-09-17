@@ -1,9 +1,9 @@
 {
-  "name": "drishti-dashboard",
+  "name": "ibvap-dashboard",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "DRISHTI-BOP command center — SIH 2026 PS 26187 Team SW-73",
+  "description": "IBVAP command center — SIH 2026 PS 26187 Team SW-73",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

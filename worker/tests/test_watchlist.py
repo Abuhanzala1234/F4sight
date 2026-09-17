@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import threading
 
-from drishti_worker.watchlist import PlateWatchHit, WatchlistCache
+from ibvap_worker.watchlist import PlateWatchHit, WatchlistCache
 
 
 class TestPlateMatch:

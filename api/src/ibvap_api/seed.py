@@ -16,7 +16,7 @@ import logging
 import os
 from typing import Any
 
-from drishti_worker.anpr import plate_hmac
+from ibvap_worker.anpr import plate_hmac
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,10 +31,10 @@ logger = logging.getLogger("seed")
 # Demo credentials. Printed at the end so nobody has to grep for them, and
 # obviously not for anything but a demo.
 DEMO_USERS = [
-    ("admin", "Cmdt. A. Sharma", "admin", "drishti-admin"),
-    ("operator", "Hav. R. Singh", "operator", "drishti-operator"),
-    ("investigator", "Insp. M. Nair", "investigator", "drishti-investigator"),
-    ("viewer", "Sector HQ Display", "viewer", "drishti-viewer"),
+    ("admin", "Cmdt. A. Sharma", "admin", "ibvap-admin"),
+    ("operator", "Hav. R. Singh", "operator", "ibvap-operator"),
+    ("investigator", "Insp. M. Nair", "investigator", "ibvap-investigator"),
+    ("viewer", "Sector HQ Display", "viewer", "ibvap-viewer"),
 ]
 
 CAMERAS: list[dict[str, Any]] = [
@@ -42,7 +42,7 @@ CAMERAS: list[dict[str, Any]] = [
         "code": "CAM-01",
         "name": "Main gate approach",
         "mediamtx_path": "fixture-intrusion",
-        "empty": True,
+        "empty": False,
         "zones": [
             {
                 "name": "Perimeter line",
@@ -75,7 +75,7 @@ CAMERAS: list[dict[str, Any]] = [
         "code": "CAM-02",
         "name": "North fence line",
         "mediamtx_path": "fixture-night",
-        "empty": True,
+        "empty": False,
         "zones": [
             {
                 "name": "Fence tripwire",
@@ -102,7 +102,7 @@ CAMERAS: list[dict[str, Any]] = [
         "code": "CAM-03",
         "name": "Vehicle checkpoint",
         "mediamtx_path": "fixture-vehicle",
-        "empty": True,
+        "empty": False,
         "zones": [
             {
                 "name": "Inspection bay",
@@ -261,7 +261,7 @@ async def main_async(site_code: str, profile: str) -> int:
         return 1
 
     print("\n" + "=" * 62)
-    print("  DRISHTI-BOP demo users (development credentials)")
+    print("  IBVAP demo users (development credentials)")
     print("=" * 62)
     for username, display, role, password in DEMO_USERS:
         print(f"  {username:<14} {password:<24} {role:<14} {display}")
@@ -272,9 +272,9 @@ async def main_async(site_code: str, profile: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed DRISHTI-BOP demo data")
-    parser.add_argument("--site", default=os.getenv("DRISHTI_SITE", "BOP-03"))
-    parser.add_argument("--profile", default=os.getenv("DRISHTI_PROFILE", "laptop"))
+    parser = argparse.ArgumentParser(description="Seed IBVAP demo data")
+    parser.add_argument("--site", default=os.getenv("IBVAP_SITE", "BOP-03"))
+    parser.add_argument("--profile", default=os.getenv("IBVAP_PROFILE", "laptop"))
     args = parser.parse_args()
     return asyncio.run(main_async(args.site, args.profile))
 

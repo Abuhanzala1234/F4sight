@@ -1,4 +1,4 @@
-# DRISHTI-BOP
+# IBVAP
 
 **AI-Based Intelligent Video Analytics Platform for Border Surveillance using existing CCTV Infrastructure**
 
@@ -8,7 +8,7 @@ Smart India Hackathon 2026 · Problem Statement **26187** · Theme: Blockchain &
 
 Border Out Posts already have CCTV. Those cameras do two things: show live video, and record it. Everything else is a human in a room, and the failure mode of a tired human is silent — nobody knows which frames were missed.
 
-DRISHTI-BOP is software that bolts onto **the RTSP streams that already exist**. It detects, tracks, and reasons about what it sees; it scores every candidate event with an additive model whose terms are all visible; it raises debounced, evidence-backed alerts; and it writes a tamper-evident audit trail anchored to a permissioned ledger.
+IBVAP is software that bolts onto **the RTSP streams that already exist**. It detects, tracks, and reasons about what it sees; it scores every candidate event with an additive model whose terms are all visible; it raises debounced, evidence-backed alerts; and it writes a tamper-evident audit trail anchored to a permissioned ledger.
 
 It runs offline, on one machine, entirely on free and open-source parts. **No API key, no cloud account, no metered inference, ₹0 marginal cost.**
 
@@ -35,6 +35,11 @@ It runs offline, on one machine, entirely on free and open-source parts. **No AP
 | **Object detection & tracking** | YOLO11 (ONNX) + ByteTrack reimplemented in-repo — the low-confidence second pass keeps an ID alive through the occlusion behind a fence post |
 | **ANPR** | Two-stage plate detect + OCR with **multi-frame voting**; the database stores an HMAC, never a plate |
 | **Face matching** | Interface, config, DB schema and privacy invariants exist; `faces.py` itself (§7.10) is **not yet implemented** — see Gate 9 |
+| **Hand signals** | YOLO11-pose keypoints on tracked people → surrender / signalling / pointing, voted across frames. Contextual: enriches a real event, never raises one alone |
+| **Weapon detection** | Two-class (gun/knife) detector on person crops, voted on *armed* rather than on weapon type. Threshold tuned against real footage to zero false alarms — see `config/weapons.yaml` for the measured curve |
+| **Suspicious fast movement** | Running detected in *body-heights per second*, so one threshold means the same thing at any distance from the camera. No model — the tracker already measured it. Tracker id-switches are discarded as artefacts, not escalated as sprinting intruders |
+| **Facial recognition** | SCRFD detect + ArcFace embed against an admin-curated, audited watchlist. OPT-IN, off by default (P6) — no enrolment path exists in the worker, and a non-matching embedding is held only for the life of its track, never written anywhere |
+| **Group behaviour** | Converging and dispersing formations, measured from track spread over a window — the coordinated case no per-track rule can see |
 | **Explainable risk** | Every alert carries an additive breakdown whose terms sum exactly to the score |
 | **Tamper-evident evidence** | RFC 8785 canonicalisation → SHA-256 → Merkle batch → Hyperledger Fabric |
 | **Environmental adaptation** | EVQM measures brightness, contrast, blur, fog, noise and picks a processing profile, with hysteresis so a passing headlight cannot flip it |
@@ -53,7 +58,7 @@ It runs offline, on one machine, entirely on free and open-source parts. **No AP
 **Prerequisites:** Docker + Docker Compose (running), Python 3.11+, Node 20+.
 
 ```bash
-git clone <this repo> && cd f4sight
+git clone <this repo> && cd ibvap
 make demo
 ```
 
@@ -216,17 +221,17 @@ is worse than not shipping it under time pressure.
 ```
  Existing IP CCTV ──RTSP──▶ MediaMTX ──┬── recording (survives an analytics crash, P8)
                                        ├── HLS ──▶ browser (RTSP is unplayable in one)
-                                       └── RTSP ──▶ drishti-worker
+                                       └── RTSP ──▶ ibvap-worker
                                                       │
         ingest → EVQM → letterbox → enhance → detect → track
               → geometry → rules → risk → debounce → evidence → sinks
                                                       │
               ┌───────────────────────────────────────┼──────────────┐
               ▼                    ▼                  ▼              ▼
-          Postgres              MinIO              Redis      drishti-anchor
+          Postgres              MinIO              Redis      ibvap-anchor
           +pgvector          snapshots/clips      streams      Merkle → Fabric
               │                    │                  │
-              └────────────▶ drishti-api ◀────────────┘
+              └────────────▶ ibvap-api ◀────────────┘
                           REST · WebSocket · verify
                                    │
                           React command center
@@ -271,8 +276,8 @@ docs/BUILD_SPEC.md          authoritative spec — §7 contracts are frozen
 docs/MODELS.md              every model: source, licence, size, cost
 docs/BENCH.md               generated by `make bench`
 config/                     every tunable number — none in source
-worker/src/drishti_worker/  the analytics pipeline (23 modules)
-api/src/drishti_api/        FastAPI: REST, WebSocket, verification
+worker/src/ibvap_worker/  the analytics pipeline (23 modules)
+api/src/ibvap_api/        FastAPI: REST, WebSocket, verification
 dashboard/src/              React command center
 fabric/chaincode/           evidencecc — stores Merkle roots, nothing else
 infra/                      compose, MediaMTX, Postgres bootstrap

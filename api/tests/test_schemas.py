@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from drishti_api.schemas import AlertDetail, ZoneIn
+from ibvap_api.schemas import AlertDetail, ZoneIn
 
 
 def _alert(score: float, breakdown: list[dict]) -> dict:

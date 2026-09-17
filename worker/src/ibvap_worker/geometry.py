@@ -37,6 +37,7 @@ __all__ = [
     "polygon_area",
     "polygon_centroid",
     "segments_intersect",
+    "speed_body_heights_per_s",
     "speed_m_per_s",
     "speed_px_per_s",
 ]
@@ -346,6 +347,36 @@ def speed_px_per_s(track: Track, fps: float, window: int = 5) -> float:
         for i in range(len(segment) - 1)
     )
     return dist * fps / (len(segment) - 1)
+
+
+def speed_body_heights_per_s(track: Track, fps: float, window: int = 5) -> float:
+    """Speed in multiples of the subject's OWN height per second.
+
+    Pixels per second is not comparable to anything. The same person running at
+    the same speed produces a huge px/s figure near the camera and a tiny one
+    forty metres down the fence, so a px/s threshold is really a threshold on
+    "how close are they", which is not what anybody wants to alert on.
+
+    Dividing by the subject's own bounding-box height fixes that the same way
+    torso-normalisation fixes it for gestures (gesture.py): the answer is scale
+    invariant, and it is interpretable, because human gaits have well-known
+    values in these units. Taking 1.7 m as a person:
+
+        walking   ~1.4 m/s  ->  ~0.8 heights/s
+        jogging   ~3.0 m/s  ->  ~1.8 heights/s
+        running   ~5.0 m/s  ->  ~2.9 heights/s
+        sprinting ~8.0 m/s  ->  ~4.7 heights/s
+
+    So it doubles as a rough speedometer on an uncalibrated camera, which is
+    every camera here by default (``speed_m_per_s`` returns None without
+    calibration rather than inventing a scale).
+
+    Returns 0.0 for a degenerate box rather than dividing by zero.
+    """
+    height = max(0.0, track.box[3] - track.box[1])
+    if height <= 1e-6:
+        return 0.0
+    return speed_px_per_s(track, fps, window) / height
 
 
 def speed_m_per_s(

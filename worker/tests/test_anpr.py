@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from drishti_worker.anpr import (
+from ibvap_worker.anpr import (
     PlateCandidate,
     PlateVoter,
     normalise_plate_text,

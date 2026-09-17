@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from drishti_worker.types import Detection, Track
+from ibvap_worker.types import Detection, Track
 
 T0 = datetime(2026, 9, 12, 22, 0, 0, tzinfo=UTC)
 

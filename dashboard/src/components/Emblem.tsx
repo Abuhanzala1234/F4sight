@@ -1,4 +1,4 @@
-/** F4SIGHT's badge: a 24-spoke chakra (the wheel on the Indian flag, not the
+/** IBVAP's badge: a 24-spoke chakra (the wheel on the Indian flag, not the
  * state emblem) with an aperture/iris at the hub. Vigilance + vision, not a
  * reproduction of an official seal. */
 export function Emblem({ className = '', ring = true }: { className?: string; ring?: boolean }) {

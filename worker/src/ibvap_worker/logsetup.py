@@ -56,7 +56,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         for key, value in record.__dict__.items():
-            if key.startswith("drishti_"):
+            if key.startswith("ibvap_"):
                 payload[key[8:]] = value
         return json.dumps(payload, separators=(",", ":"))
 
@@ -80,7 +80,7 @@ class ConsoleFormatter(logging.Formatter):
         level = record.levelname[:4]
         if self.colour:
             level = f"{self.COLOURS.get(record.levelname, '')}{level}{self.RESET}"
-        name = record.name.replace("drishti_worker.", "")
+        name = record.name.replace("ibvap_worker.", "")
         line = f"{ts} {level} {name:<14} {record.getMessage()}"
         if record.exc_info:
             line += "\n" + self.formatException(record.exc_info)

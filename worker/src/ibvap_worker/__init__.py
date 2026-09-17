@@ -1,4 +1,4 @@
-"""DRISHTI-BOP analytics worker.
+"""IBVAP analytics worker.
 
 SIH 2026 · PS 26187 · Team SW-73 (ByteForge).
 

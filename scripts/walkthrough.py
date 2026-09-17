@@ -27,14 +27,14 @@ for _stream in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker" / "src"))
 
-from drishti_worker.evidence import assemble, canonicalise, evidence_hash, verify
-from drishti_worker.geometry import crossing_direction
-from drishti_worker.ledger.mock import MockLedger
-from drishti_worker.merkle import build_tree, proof, verify_proof
-from drishti_worker.risk import RiskConfig, RiskContext, score
-from drishti_worker.rules import DebounceConfig, Debouncer, RuleConfig, RuleEngine
-from drishti_worker.track import ByteTracker, TrackerConfig
-from drishti_worker.types import CameraRuntime, Detection, ZoneKind, ZoneRuntime
+from ibvap_worker.evidence import assemble, canonicalise, evidence_hash, verify
+from ibvap_worker.geometry import crossing_direction
+from ibvap_worker.ledger.mock import MockLedger
+from ibvap_worker.merkle import build_tree, proof, verify_proof
+from ibvap_worker.risk import RiskConfig, RiskContext, score
+from ibvap_worker.rules import DebounceConfig, Debouncer, RuleConfig, RuleEngine
+from ibvap_worker.track import ByteTracker, TrackerConfig
+from ibvap_worker.types import CameraRuntime, Detection, ZoneKind, ZoneRuntime
 
 BOLD, DIM, GREEN, RED, CYAN, RESET = (
     "\033[1m",
@@ -73,7 +73,7 @@ wire = ZoneRuntime(
     severity_base=4,
 )
 
-print(f"{BOLD}DRISHTI-BOP — offline walkthrough{RESET}")
+print(f"{BOLD}IBVAP — offline walkthrough{RESET}")
 print(f"{DIM}SIH 2026 · PS 26187 · Team SW-73 (ByteForge){RESET}")
 print(f"{DIM}No database, no GPU, no model weights, no network.{RESET}")
 

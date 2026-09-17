@@ -5,20 +5,29 @@ import { LiveTrackSocket } from '@/lib/ws';
 
 /**
  * Real detection overlay for the live wall -- draws the ACTUAL tracker
- * output from worker/src/drishti_worker/pipeline.py's per-frame `_on_tracks`
+ * output from worker/src/ibvap_worker/pipeline.py's per-frame `_on_tracks`
  * publish (see api/routers/ws.py's `/ws/live/{camera_id}`), not a simulation.
  * Boxes are class-coloured (person = ice/blue, vehicle = signal/amber, same
  * palette as the rest of the app) with a real track id and a speed reading
  * computed from the object's own measured motion (Track.speed_px_s).
  *
- * Honest limitation, worth knowing before demoing this: the video arrives as
- * HLS, which buffers a few seconds behind the actual camera (that is normal
- * for HLS, not a bug here) while this overlay's WebSocket is near-instant.
- * So the boxes will visibly run a little AHEAD of the picture rather than
- * being frame-locked to it. Fixing that fully would mean moving the live
- * wall to MediaMTX's WebRTC output (sub-second latency, already enabled in
- * infra/mediamtx.yml) instead of HLS -- a bigger change than this overlay,
- * left as a follow-up rather than done silently here.
+ * On alignment, since two separate things used to break it:
+ *
+ * 1. Scale. Boxes are in the worker's own frame pixel space and the tile
+ *    renders the video with object-fit: cover, so they need the same
+ *    scale-and-crop the browser applied. That needs the TRUE frame size,
+ *    which now travels on every WebSocket frame (`frame_w`/`frame_h`). It
+ *    used to read camera.resolution_w/h -- a seed-time 1280x720 default that
+ *    nothing updates on connect, so any camera that was not actually 720p
+ *    (a phone in portrait, most obviously) had every box transformed wrong.
+ *
+ * 2. Time. Boxes arrive over a near-instant WebSocket, so if the video is
+ *    delayed the boxes lead the picture no matter how right the maths is.
+ *    CameraTile plays WebRTC (a few hundred ms) in preference to HLS
+ *    (seconds), which closes most of that gap. A tile that has fallen back
+ *    to HLS will still show the lead -- that is the fallback being visible,
+ *    not this overlay being wrong, and the tile labels which transport it
+ *    got (RTC/HLS) so the difference is never a mystery.
  */
 
 const CLASS_COLOR: Record<string, string> = {
@@ -36,6 +45,10 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tracksRef = useRef<LiveTrack[]>([]);
   const lastFrameAtRef = useRef<number>(0);
+  // The frame size the boxes were actually measured in, as reported by the
+  // worker on every frame. Seeded from the camera row only so the very first
+  // paint has something; every real frame overwrites it.
+  const srcSizeRef = useRef<[number, number]>([camera.resolution_w, camera.resolution_h]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -44,6 +57,9 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
 
     const socket = new LiveTrackSocket(camera.id, session.access_token, (frame) => {
       tracksRef.current = frame.tracks;
+      if (frame.frame_w && frame.frame_h) {
+        srcSizeRef.current = [frame.frame_w, frame.frame_h];
+      }
       lastFrameAtRef.current = performance.now();
     });
     socket.connect();
@@ -114,8 +130,16 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
       // in the wrong place (exactly the "box outside the face" bug this
       // replaces). scale = the LARGER ratio, because cover crops the
       // smaller dimension's overflow rather than letterboxing it.
-      const srcW = camera.resolution_w || w;
-      const srcH = camera.resolution_h || h;
+      //
+      // srcW/srcH come from the worker's own frame, NOT camera.resolution_w/h:
+      // that column is a seed-time default (1280x720) that nothing updates
+      // when a real camera connects, so trusting it put every box on a
+      // non-720p camera through the wrong transform entirely.
+      const [srcW, srcH] = srcSizeRef.current;
+      if (!srcW || !srcH) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
       const scale = Math.max(w / srcW, h / srcH);
       const offX = (w - srcW * scale) / 2;
       const offY = (h - srcH * scale) / 2;
@@ -150,7 +174,7 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
       cancelAnimationFrame(raf);
       ro?.disconnect();
     };
-  }, [active, camera.resolution_w, camera.resolution_h]);
+  }, [active]);
 
   if (!active) return null;
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />;

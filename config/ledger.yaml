@@ -12,7 +12,7 @@ ledger:
     path: ledger_data/mock_ledger.jsonl   # append-only, SHA-256 chained
 
   fabric:
-    channel: drishti
+    channel: ibvap
     chaincode: evidencecc
     msp_id: Org1MSP
     peer_endpoint: localhost:7051

@@ -68,6 +68,48 @@ rules:
     crowd_min: 4
     within_zone_only: true
 
+  # Coordinated group movement. crowd_forming above counts heads in a zone;
+  # this watches what the group DOES, camera-wide -- people converging on a
+  # fence are outside every zone until it is too late for the warning to help.
+  group_motion:
+    enabled: true
+    group_min: 3                  # fewer than this is not a group
+    # Measured over a window, not frame to frame: at 6 fps, 12 frames is 2s,
+    # long enough that one person's stumble cannot move the group's centroid
+    # enough to invent an event.
+    window_frames: 12
+    converge_ratio: 0.70          # spread fell to <=70% of its start
+    disperse_ratio: 1.40          # or grew to >=140% of it
+    # Guards the degenerate end: a group already shoulder-to-shoulder has a
+    # tiny spread, and tiny numbers make big ratios out of nothing.
+    min_spread_px: 60
+
+  # Hand signals from body keypoints. CONTEXTUAL, like night_movement: these
+  # enrich a real event and never raise one alone, because a person waving in
+  # the middle of a field is not an alert. Tuning for the detector itself
+  # (model, thresholds, how many frames must agree) is in config/gestures.yaml.
+  hand_signal:
+    enabled: true
+    codes: [HANDS_UP, ARM_RAISED, POINTING]
+
+  # Running. No model and no extra inference -- the tracker has already
+  # measured this motion. Threshold is in BODY-HEIGHTS PER SECOND, never
+  # pixels: a pixel threshold is really a threshold on how near the camera
+  # somebody is. ~0.8 is walking, ~1.8 jogging, ~2.9 running, ~4.7 sprinting.
+  fast_movement:
+    enabled: true
+    classes: [person]
+    # Between a jog and a run. Measured against 466 real tracked pedestrians in
+    # eval/clips (MOT16, sampled at this profile's 6 fps): walking reads
+    # mean 0.30, p90 0.61, max 1.21 heights/s -- so 2.0 sits well clear of the
+    # fastest ordinary walker observed, and fires zero false alarms on them.
+    heights_per_s: 2.0
+    # Above this is not a human, it is a tracker id switch between two people
+    # standing apart -- which always looks arbitrarily fast. Discarded rather
+    # than escalated, because it is a bookkeeping error, not an intruder.
+    implausible_heights_per_s: 8.0
+    window_frames: 5              # averaged, so one jittery box cannot fire it
+
   abandoned_object:
     enabled: false                # [STRETCH]
     seconds: 90

@@ -85,7 +85,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <Emblem className="h-6 w-6 text-signal" />
             <span className="font-display text-base font-bold tracking-[0.16em] text-bright">
-              F4SIGHT
+              IBVAP
             </span>
           </div>
 
@@ -147,7 +147,7 @@ export default function App() {
 
       <main className="mx-auto max-w-[1800px] animate-sweep-in px-4 py-3">
         {tab === 'wall' && <LiveWall />}
-        {tab === 'alerts' && <Alerts live={liveAlerts} />}
+        {tab === 'alerts' && <Alerts live={liveAlerts} connected={connected} />}
         {tab === 'verify' && <Verify />}
       </main>
     </div>

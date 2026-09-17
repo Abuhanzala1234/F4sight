@@ -15,9 +15,9 @@ import numpy as np
 import pytest
 from helpers import T0, make_track
 
-from drishti_worker.alerting import AlertAssembler, FrameBuffer
-from drishti_worker.sinks import FanoutSink, NullSink
-from drishti_worker.types import CameraRuntime, Frame, RiskResult, Signal
+from ibvap_worker.alerting import AlertAssembler, FrameBuffer
+from ibvap_worker.sinks import FanoutSink, NullSink
+from ibvap_worker.types import CameraRuntime, Frame, RiskResult, Signal
 
 CAMERA = CameraRuntime(
     camera_id="cam-1",
@@ -49,7 +49,7 @@ class FakeMinio:
         self.calls.append((kind, object_key, data, content_type))
         return {
             "kind": kind,
-            "bucket": f"drishti-{kind}s",
+            "bucket": f"ibvap-{kind}s",
             "object_key": object_key,
             "sha256": hashlib.sha256(data).hexdigest(),
             "bytes": len(data),
@@ -161,7 +161,7 @@ class TestClip:
 
     def test_clip_digest_is_inside_the_hashed_document(self):
         """§7.11: an altered clip must invalidate the alert hash."""
-        from drishti_worker.evidence import evidence_hash
+        from ibvap_worker.evidence import evidence_hash
 
         minio = FakeMinio()
         assembler = make_assembler(minio=minio, clip_pre_roll_s=5.0)

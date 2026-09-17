@@ -1,5 +1,5 @@
 {
-  "_provenance": "Zone geometry derived from REAL tracked pedestrian trajectories (worker/src/drishti_worker/track.py ByteTracker output) on real MOT16 CCTV footage, not from visual estimation. See docs/EVAL.md methodology section for the exact derivation.",
+  "_provenance": "Zone geometry derived from REAL tracked pedestrian trajectories (worker/src/ibvap_worker/track.py ByteTracker output) on real MOT16 CCTV footage, not from visual estimation. See docs/EVAL.md methodology section for the exact derivation.",
   "MOT-04": [
     {
       "id": "corridor-line", "name": "Storefront corridor tripwire", "kind": "tripwire",

@@ -13,7 +13,7 @@ import type {
 } from '@/types';
 
 const BASE = '/api/v1';
-const STORAGE_KEY = 'drishti.session';
+const STORAGE_KEY = 'ibvap.session';
 
 export class ApiError extends Error {
   constructor(

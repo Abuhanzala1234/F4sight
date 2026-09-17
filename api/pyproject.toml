@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "drishti-api"
+name = "ibvap-api"
 version = "1.0.0"
-description = "DRISHTI-BOP API — REST, WebSocket fan-out, evidence verification"
+description = "IBVAP API — REST, WebSocket fan-out, evidence verification"
 requires-python = ">=3.11"
 license = {text = "AGPL-3.0-or-later"}
 dependencies = [
@@ -27,11 +27,11 @@ dependencies = [
     # canonicaliser, the Merkle proof checker and the plate HMAC must be the
     # SAME code that produced the hashes, not a reimplementation that could
     # drift (BUILD_SPEC §7.11).
-    "drishti-worker",
+    "ibvap-worker",
 ]
 
 [tool.uv.sources]
-drishti-worker = { path = "../worker", editable = true }
+ibvap-worker = { path = "../worker", editable = true }
 
 [project.optional-dependencies]
 dev = [
@@ -66,8 +66,8 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RET", "ARG", "PTH", 
 # arguments would silently remove the authorisation check from the endpoint —
 # the failure would be invisible in review and catastrophic in deployment.
 # RBAC is enforced by a dependency, never in the router body (BUILD_SPEC §8).
-"src/drishti_api/routers/*.py" = ["B008", "BLE001", "ARG001"]
-"src/drishti_api/seed.py" = ["BLE001"]
-"src/drishti_api/migrations/*" = ["E402", "INP001"]
+"src/ibvap_api/routers/*.py" = ["B008", "BLE001", "ARG001"]
+"src/ibvap_api/seed.py" = ["BLE001"]
+"src/ibvap_api/migrations/*" = ["E402", "INP001"]
 # Tests put the src trees on sys.path before importing, which E402 flags.
 "tests/*" = ["E402", "ARG002"]

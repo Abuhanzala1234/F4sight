@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, pool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from drishti_api.models import Base
+from ibvap_api.models import Base
 
 config = context.config
 if config.config_file_name is not None:
@@ -29,10 +29,10 @@ def database_url() -> str:
     # Synchronous driver for migrations: Alembic's runtime is sync, and mixing
     # asyncpg in here buys nothing but complexity.
     return (
-        f"postgresql+psycopg://{os.getenv('DB_USER', 'drishti')}:"
-        f"{os.getenv('DB_PASSWORD', 'drishti_dev')}@"
+        f"postgresql+psycopg://{os.getenv('DB_USER', 'ibvap')}:"
+        f"{os.getenv('DB_PASSWORD', 'ibvap_dev')}@"
         f"{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/"
-        f"{os.getenv('DB_NAME', 'drishti')}"
+        f"{os.getenv('DB_NAME', 'ibvap')}"
     )
 
 

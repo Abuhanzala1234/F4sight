@@ -84,8 +84,8 @@ class Service:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", default=os.getenv("DRISHTI_PROFILE", "laptop"))
-    parser.add_argument("--site", default=os.getenv("DRISHTI_SITE", "BOP-03"))
+    parser.add_argument("--profile", default=os.getenv("IBVAP_PROFILE", "laptop"))
+    parser.add_argument("--site", default=os.getenv("IBVAP_SITE", "BOP-03"))
     parser.add_argument("--no-worker", action="store_true", help="API and anchor only")
     args = parser.parse_args()
 
@@ -94,12 +94,12 @@ def main() -> int:
         # os.pathsep, not a literal ":" -- Windows needs ";", and a worker or
         # API subprocess launched with the wrong separator silently gets an
         # empty PYTHONPATH (the whole string is treated as one nonexistent
-        # path) and fails at its very first `import drishti_api`/
-        # `import drishti_worker`, before either service prints a line.
+        # path) and fails at its very first `import ibvap_api`/
+        # `import ibvap_worker`, before either service prints a line.
         "PYTHONPATH": os.pathsep.join([str(ROOT / "worker" / "src"), str(ROOT / "api" / "src")]),
     }
 
-    print(f"\n{BOLD}DRISHTI-BOP — demo{RESET}")
+    print(f"\n{BOLD}IBVAP — demo{RESET}")
     print(f"{DIM}SIH 2026 · PS 26187 · Team SW-73 (ByteForge){RESET}")
     print(f"{DIM}profile={args.profile} site={args.site}{RESET}\n")
 
@@ -110,7 +110,7 @@ def main() -> int:
                 PY,
                 "-m",
                 "uvicorn",
-                "drishti_api.main:app",
+                "ibvap_api.main:app",
                 "--host",
                 "0.0.0.0",
                 "--port",
@@ -120,7 +120,7 @@ def main() -> int:
         ),
         Service(
             "anchor",
-            [PY, "-m", "drishti_worker.anchor_service", "--profile", args.profile],
+            [PY, "-m", "ibvap_worker.anchor_service", "--profile", args.profile],
         ),
     ]
     if not args.no_worker:
@@ -130,7 +130,7 @@ def main() -> int:
                 [
                     PY,
                     "-m",
-                    "drishti_worker",
+                    "ibvap_worker",
                     "--profile",
                     args.profile,
                     "--site",

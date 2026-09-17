@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from drishti_worker.evidence import assemble, evidence_hash
+from ibvap_worker.evidence import assemble, evidence_hash
 
 
 def genuine_document() -> dict:
@@ -92,8 +92,8 @@ class TestAccessControl:
         assert response.status_code == 401
 
     def test_refresh_token_cannot_call_the_api(self, client):
-        from drishti_api.security import create_token
-        from drishti_api.settings import get_settings
+        from ibvap_api.security import create_token
+        from ibvap_api.settings import get_settings
 
         refresh, _ = create_token("u", "admin", get_settings(), refresh=True)
         response = client.get("/api/v1/alerts", headers={"Authorization": f"Bearer {refresh}"})
@@ -107,7 +107,7 @@ class TestPublicSurface:
         # production (main.py mounts StaticFiles there) -- this info blob
         # lives at "/api" so it never competes with that exact path.
         body = client.get("/api").json()
-        assert body["name"] == "DRISHTI-BOP"
+        assert body["name"] == "IBVAP"
         assert "26187" in body["problem_statement"]
 
     def test_liveness_needs_no_database(self, client):
