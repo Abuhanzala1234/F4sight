@@ -111,19 +111,26 @@ def decode_weapon_output(
     scores = best_score[keep_mask]
     classes = best_cls[keep_mask]
 
-    survivors: list[tuple[float, int]] = []
+    survivors: list[tuple[float, int, Any]] = []
     for cls_id in np.unique(classes):
         sel = classes == cls_id
         sub_boxes, sub_scores = boxes[sel], scores[sel]
         for k in nms(sub_boxes, sub_scores, iou_threshold):
-            survivors.append((float(sub_scores[k]), int(cls_id)))
+            survivors.append((float(sub_scores[k]), int(cls_id), sub_boxes[k]))
     if not survivors:
         return None
 
-    conf, cls_id = max(survivors)
+    conf, cls_id, box = max(survivors, key=lambda s: s[0])
     # Explicit float()/str(): numpy scalars reaching the evidence canonicaliser
-    # is a bug this project has already paid for once (README).
-    return WeaponCandidate(cls=str(WEAPON_CLASSES[cls_id]), conf=float(conf))
+    # is a bug this project has already paid for once (README). Box stays in
+    # MODEL space here -- decode_weapon_output has no notion of the crop's
+    # place in the original frame, so mapping it back is the caller's job
+    # (pipeline.py), same division of responsibility as the primary detector.
+    return WeaponCandidate(
+        cls=str(WEAPON_CLASSES[cls_id]),
+        conf=float(conf),
+        box=(float(box[0]), float(box[1]), float(box[2]), float(box[3])),
+    )
 
 
 class OnnxWeaponDetector:

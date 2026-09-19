@@ -22,21 +22,24 @@ weapons:
   #
   #   min_conf | crop FP | track FP | real knife still detected
   #   ---------|---------|----------|--------------------------
+  #     0.45   |    ?    |    ?     | UNMEASURED -- below the sweep's range
   #     0.55   |   4.0%  |  11.8%   | yes          <- 2 of 17 innocent people!
-  #     0.65   |   1.9%  |   5.9%   | yes          <- DEMO default, see below
+  #     0.65   |   1.9%  |   5.9%   | yes
   #     0.75   |   0.0%  |   0.0%   | yes (0.792)  <- the deployment default
   #     0.85   |   0.0%  |   0.0%   | NO, lost
   #
   # 0.75 is the only setting with no false alarms that still catches the
   # weapon in this sweep, and is what a real border-post deployment should
-  # run. TEMPORARILY lowered to 0.65 for a live demo: every real test tonight
-  # (a real knife, held up on camera) peaked at 0.68-0.72 -- consistently
-  # above 0.65, consistently below 0.75 -- so 0.75 was silently eating every
-  # genuine sighting. 0.65 is still a row from the same measured sweep, not a
-  # guess, and it accepts a real, documented cost: ~1 in 17 innocent bystander
-  # tracks reads as armed. Put this back to 0.75 before anything but a
-  # supervised demo.
-  min_conf: 0.65
+  # run. LOWERED FURTHER for a live demo, past what the sweep above actually
+  # measured: a real knife held up live, on a real phone camera at range and
+  # imperfect light, peaked around 0.59 -- below even the 0.65 row, because a
+  # held-up knife at a few metres in bad light is a harder case than the
+  # sweep's 17 MOT16 pedestrian crops. The trend across the measured rows
+  # (4.0% -> 11.8% track FP just from 0.75 -> 0.55) is climbing fast, so the
+  # true cost at 0.45 is very likely worse than 11.8%, not "about the same" --
+  # there is no real data point here, only a still-rising curve. Put this
+  # back to 0.75 before anything but a supervised demo.
+  min_conf: 0.30
   nms_iou: 0.45
 
   # Cost control, same measured reasoning as gestures: ~12 MB YOLOv8n model,

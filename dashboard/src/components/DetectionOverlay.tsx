@@ -37,6 +37,11 @@ const CLASS_COLOR: Record<string, string> = {
   bag: '#FF8A3D', // ember
 };
 
+// Same alarm red the rest of the app already uses for a fired alert -- a
+// weapon box needs to read as "the threat", not just "another tracked
+// object", so it does not share the class palette above.
+const WEAPON_COLOR = '#F16565';
+
 function colorFor(cls: string): string {
   return CLASS_COLOR[cls] ?? '#C9D1D9';
 }
@@ -110,6 +115,30 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
       ctx!.globalAlpha = 1;
     }
 
+    // Deliberately NOT the bracket style above -- brackets mean "a tracked
+    // object", a solid box means "the specific threat region inside it",
+    // matching how a weapon detector's own reference imagery draws it (a
+    // small solid box on the weapon, nested inside the person's own box).
+    function drawSolidBox(x: number, y: number, w: number, h: number, label: string) {
+      ctx!.strokeStyle = WEAPON_COLOR;
+      ctx!.lineWidth = 2;
+      ctx!.strokeRect(x, y, w, h);
+
+      const fontPx = Math.max(9, Math.round(h * 0.5));
+      ctx!.font = `700 ${fontPx}px "IBM Plex Mono", monospace`;
+      const textW = ctx!.measureText(label).width;
+      const padX = 4;
+      const chipH = fontPx + 6;
+      // Chip sits above the box, flush left with it -- if that would run off
+      // the top of the tile, drop it just inside the box instead.
+      const chipY = y - chipH >= 0 ? y - chipH : y;
+      ctx!.fillStyle = WEAPON_COLOR;
+      ctx!.fillRect(x, chipY, textW + padX * 2, chipH);
+      ctx!.fillStyle = '#0B0D10';
+      ctx!.textBaseline = 'middle';
+      ctx!.fillText(label, x + padX, chipY + chipH / 2 + 1);
+    }
+
     function frame() {
       const w = canvas!.width;
       const h = canvas!.height;
@@ -150,12 +179,18 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
         const by = y1 * scale + offY;
         const bw = (x2 - x1) * scale;
         const bh = (y2 - y1) * scale;
-        const color = colorFor(track.cls);
+        const armed = track.weapon !== null;
+        // Armed reads in alarm red even for a "person" box -- the colour is
+        // saying "this track is a live threat", which outranks the class
+        // colour underneath it.
+        const color = armed ? WEAPON_COLOR : colorFor(track.cls);
 
         drawBracketBox(bx, by, bw, bh, color);
 
         const speed = (track.speed_px_s / 40).toFixed(1); // px/s -> cosmetic m/s-ish scale
-        const label = `${track.cls.toUpperCase()} #${track.track_id}`;
+        const label = armed
+          ? `${track.cls.toUpperCase()}_WITH_${(track.weapon as NonNullable<typeof track.weapon>).weapon_type.toUpperCase()} #${track.track_id}`
+          : `${track.cls.toUpperCase()} #${track.track_id}`;
         ctx!.font = `${Math.max(9, Math.round(h * 0.012))}px "IBM Plex Mono", monospace`;
         ctx!.textBaseline = 'bottom';
         ctx!.fillStyle = color;
@@ -164,6 +199,20 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
         ctx!.font = `${Math.max(8, Math.round(h * 0.01))}px "IBM Plex Mono", monospace`;
         ctx!.fillText(`${speed} m/s`, bx, by - 1);
         ctx!.globalAlpha = 1;
+
+        // The weapon's OWN box, nested inside the person's -- only drawn
+        // when the worker actually mapped one back to frame pixels (see
+        // pipeline.py's mapped_transform.to_original call).
+        if (track.weapon?.box) {
+          const [wx1, wy1, wx2, wy2] = track.weapon.box;
+          drawSolidBox(
+            wx1 * scale + offX,
+            wy1 * scale + offY,
+            (wx2 - wx1) * scale,
+            (wy2 - wy1) * scale,
+            track.weapon.weapon_type.toUpperCase(),
+          );
+        }
       }
 
       raf = requestAnimationFrame(frame);

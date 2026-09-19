@@ -169,11 +169,28 @@ export type ServerMsg =
 
 /** One real tracked object, as published live by the worker (pipeline.py's
  * `_on_tracks` hook) -- box is in the camera's ORIGINAL pixel coordinates. */
+/** Present on a track only while it has a currently-held weapon reading --
+ * the worker publishes this straight from its own held-state cache
+ * (pipeline.py's `_weapon_last`), so it keeps appearing on a motionless
+ * track for the same reason the alert itself keeps firing: stillness must
+ * never read as "put it down." `box` is already in this frame's original
+ * pixel space, mapped back from the crop the model actually saw -- draw it
+ * with the exact same transform used for the track's own `box` below. */
+export interface LiveWeaponHit {
+  track_id: number;
+  weapon_type: string;
+  conf: number;
+  frames_agreed: number;
+  frames_seen: number;
+  box: [number, number, number, number] | null;
+}
+
 export interface LiveTrack {
   track_id: number;
   cls: string;
   box: [number, number, number, number];
   speed_px_s: number;
+  weapon: LiveWeaponHit | null;
 }
 
 /** `/ws/live/{camera_id}` message: one frame's worth of real tracks.

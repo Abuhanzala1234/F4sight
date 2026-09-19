@@ -523,6 +523,14 @@ class CameraWorker:
                             "cls": t.cls,
                             "box": [round(v, 1) for v in t.box],
                             "speed_px_s": round(t.speed_px_s(self.camera.analytics_fps), 1),
+                            # Reads straight from the same held-state cache the
+                            # rule engine uses, not a fresh model call -- so a
+                            # weapon box keeps drawing on a motionless track
+                            # for exactly the same reason it keeps alerting.
+                            # None on every track with nothing to show, not an
+                            # omitted key, so the dashboard never has to guess
+                            # whether "weapon" was left out or genuinely absent.
+                            "weapon": self._weapon_last.get(t.track_id),
                         }
                         for t in confirmed
                     ],
@@ -631,7 +639,7 @@ class CameraWorker:
             prepared = _crop_letterboxed(frame, track.box, cfg.input_size)
             if prepared is None:
                 continue
-            canvas, _transform, _origin = prepared
+            canvas, transform, origin = prepared
 
             # Cheap gate in front of the expensive model (activity.py). A crop
             # that has not changed since we last looked does not need another
@@ -658,6 +666,18 @@ class CameraWorker:
                     track.track_id,
                 )
                 continue
+
+            if candidate is not None and candidate.box is not None:
+                # THE mapping point: onnx_weapon.py returns the box in the
+                # letterboxed crop's own space, with no notion of where that
+                # crop sat in the original frame. crop_x/crop_y exist on
+                # FrameTransform for exactly this "tile within the frame"
+                # case (see gesture.py's identical pattern) -- everything
+                # downstream of this line sees only real frame pixels.
+                mapped_transform = replace(
+                    transform, crop_x=float(origin[0]), crop_y=float(origin[1])
+                )
+                candidate = replace(candidate, box=mapped_transform.to_original(candidate.box))
 
             # Below min_conf, `candidate` is None and used to leave no trace
             # anywhere -- "the model saw nothing" and "the model saw a knife
@@ -697,6 +717,7 @@ class CameraWorker:
                 "conf": round(float(settled.conf), 3),
                 "frames_agreed": int(settled.frames_agreed),
                 "frames_seen": int(settled.frames_seen),
+                "box": [round(v, 1) for v in settled.box] if settled.box else None,
             }
             self._weapon_last[track.track_id] = record
             if best is None or settled.conf > best[0]:

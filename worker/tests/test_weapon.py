@@ -53,6 +53,10 @@ class TestDecode:
         assert got is not None
         assert got.cls == "guns"
         assert got.conf == pytest.approx(0.91, abs=1e-5)
+        # box is (cx-w/2, cy-h/2, cx+w/2, cy+h/2) for the WINNING detection
+        # (guns, 0.91), not the lower-scoring one -- catches a max() that
+        # picked the right score but a mismatched box.
+        assert got.box == pytest.approx((90.0, 80.0, 110.0, 120.0), abs=1e-3)
 
     def test_below_threshold_is_nothing(self):
         raw = raw_with([(0, 0.40, (100, 100, 20, 40))])
@@ -67,6 +71,7 @@ class TestDecode:
         got = decode_weapon_output(raw_with([(1, 0.8, (10, 10, 5, 5))]), 0.55)
         assert type(got.conf) is float
         assert type(got.cls) is str
+        assert all(type(v) is float for v in got.box)
 
     def test_wrong_channel_count_fails_loudly(self):
         """A swapped-in model with a different class count must not silently
@@ -89,6 +94,15 @@ class TestVoting:
         assert got is not None
         assert got.cls == "guns"
         assert got.frames_agreed == 3
+
+    def test_settled_box_is_the_most_recent_sighting_not_an_average(self):
+        seq = [
+            WeaponCandidate("guns", 0.9, box=(0.0, 0.0, 10.0, 10.0)),
+            WeaponCandidate("guns", 0.9, box=(50.0, 50.0, 60.0, 60.0)),
+        ]
+        got = vote_weapon(seq, min_frames_agreed=2)
+        assert got is not None
+        assert got.box == (50.0, 50.0, 60.0, 60.0)
 
     def test_quiet_frames_do_not_count(self):
         seq = [WeaponCandidate("guns", 0.9), None, WeaponCandidate("guns", 0.9), None]

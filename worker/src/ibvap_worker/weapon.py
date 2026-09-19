@@ -91,6 +91,13 @@ class WeaponCandidate:
 
     cls: str
     conf: float
+    # Original-frame pixel coordinates (x1, y1, x2, y2), mapped back from the
+    # crop before this reaches the voter -- so everything downstream of
+    # onnx_weapon.py already obeys the one-mapping-point invariant the
+    # primary detector follows. None only for a caller that never had a real
+    # detection to draw (kept optional so existing tests that build a bare
+    # WeaponCandidate(cls, conf) do not have to change).
+    box: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +108,11 @@ class WeaponSettled:
     conf: float  # mean confidence of the agreeing frames
     frames_agreed: int
     frames_seen: int
+    # The box from the MOST RECENT agreeing frame, not an average -- a
+    # weapon's on-screen position is only interesting as of right now, and
+    # meaning-averaging four boxes across a moving arm draws a box between
+    # where the gun was and where it is.
+    box: tuple[float, float, float, float] | None = None
 
 
 def vote_weapon(
@@ -132,6 +144,7 @@ def vote_weapon(
         conf=round(sum(c.conf for c in seen) / len(seen), 3),
         frames_agreed=len(seen),
         frames_seen=len(candidates),
+        box=seen[-1].box,
     )
 
 

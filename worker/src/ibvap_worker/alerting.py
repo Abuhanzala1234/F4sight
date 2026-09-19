@@ -97,7 +97,19 @@ class AlertAssembler:
         if clip is not None:
             items.append(clip)
 
-        primary = signals[0]
+        # THE alert's kind is the STRONGEST signal, not whichever rule
+        # happened to run first (RuleEngine evaluates its rules in a fixed
+        # registration order, and WeaponVisibleRule is registered well after
+        # the zone/tripwire/perimeter rules) -- signals[0] silently picked
+        # registration order instead, so a frame where a weapon (weight ~75)
+        # fired alongside a zone/perimeter signal (weight ~18-45) reported
+        # kind="ZONE_INTRUSION" or "PERIMETER_APPROACH" on the dashboard with
+        # "WEAPON_VISIBLE" sitting one slot down in reason_codes where an
+        # operator triaging by kind would never see it. Same invariant
+        # pipeline.py's own `primary` already follows when it picks which
+        # signal drives the debounce key -- this just makes the alert itself
+        # agree with what debounce already decided mattered most.
+        primary = max(signals, key=lambda s: s.weight)
         doc = assemble(
             alert_id=alert_id,
             site={
