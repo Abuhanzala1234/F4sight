@@ -647,8 +647,9 @@ class CameraWorker:
                     best = (held["conf"], held)
                 continue
 
+            debug: dict[str, Any] = {}
             try:
-                candidate = self._weapon.detect(canvas)
+                candidate = self._weapon.detect(canvas, debug=debug)
             except Exception:
                 # P8: a flaky accelerator must not cost the frame or the camera.
                 logger.exception(
@@ -657,6 +658,23 @@ class CameraWorker:
                     track.track_id,
                 )
                 continue
+
+            # Below min_conf, `candidate` is None and used to leave no trace
+            # anywhere -- "the model saw nothing" and "the model saw a knife
+            # at 0.60" were indistinguishable in the logs, which is exactly
+            # the question an operator asks the first time a real test does
+            # not alert. Floored at 0.30 so ordinary idle frames (score near
+            # zero) do not spam this at every gated inference.
+            if candidate is None and debug.get("best_conf", 0.0) >= 0.30:
+                logger.info(
+                    "camera=%s weapon-check track=%s saw %s at %.3f "
+                    "(below min_conf=%.2f, not counted)",
+                    self.camera.code,
+                    track.track_id,
+                    debug.get("best_cls"),
+                    debug["best_conf"],
+                    cfg.min_conf,
+                )
 
             voter = self._weapon_voters.get(track.track_id)
             if voter is None:
@@ -927,6 +945,15 @@ class CameraWorker:
             return None
         cfg = self.anpr_cfg
         classes = cfg.classes if cfg else ("vehicle",)
+        every_n_frames = cfg.every_n_frames if cfg else 5
+        # Gates only the expensive OCR call below, never the cache lookup --
+        # a settled hit MUST still return on every frame regardless of
+        # cadence, or the rule-gate timing bug this function's docstring
+        # already warns about comes right back: the one frame the gate
+        # actually opens on could land on a skipped cadence frame.
+        skip_read = every_n_frames > 1 and bool(frame.frame_id % every_n_frames)
+        max_tracks = cfg.max_tracks_per_frame if cfg else 2
+        reads_done = 0
         height, width = frame.image.shape[:2]
 
         for track in tracks:
@@ -948,6 +975,14 @@ class CameraWorker:
                 self._plate_voters[track.track_id] = voter
             if voter.settled is not None:
                 continue  # already read this vehicle; no need to keep cropping it
+            if skip_read:
+                continue
+            # Bounds worst-case cost on ONE frame, same reason weapon/gesture
+            # already cap theirs: every_n_frames only bounds how OFTEN this
+            # runs, not how many tracks a single eligible frame can hit.
+            if reads_done >= max_tracks:
+                continue
+            reads_done += 1
 
             x1, y1, x2, y2 = (int(max(0, v)) for v in track.box)
             x2, y2 = min(width, x2), min(height, y2)

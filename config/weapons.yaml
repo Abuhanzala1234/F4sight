@@ -23,17 +23,20 @@ weapons:
   #   min_conf | crop FP | track FP | real knife still detected
   #   ---------|---------|----------|--------------------------
   #     0.55   |   4.0%  |  11.8%   | yes          <- 2 of 17 innocent people!
-  #     0.65   |   1.9%  |   5.9%   | yes
-  #     0.75   |   0.0%  |   0.0%   | yes (0.792)  <- chosen
+  #     0.65   |   1.9%  |   5.9%   | yes          <- DEMO default, see below
+  #     0.75   |   0.0%  |   0.0%   | yes (0.792)  <- the deployment default
   #     0.85   |   0.0%  |   0.0%   | NO, lost
   #
   # 0.75 is the only setting with no false alarms that still catches the
-  # weapon. Note the margin is thin -- the true positive scores 0.792 against a
-  # 0.75 floor -- so a partially-occluded weapon will fall under it. That is the
-  # deliberate trade: on a border wall, an alert that cries wolf costs more than
-  # a missed knife that the zone and tripwire rules would catch anyway. Widening
-  # this needs more test footage, not a bolder number.
-  min_conf: 0.75
+  # weapon in this sweep, and is what a real border-post deployment should
+  # run. TEMPORARILY lowered to 0.65 for a live demo: every real test tonight
+  # (a real knife, held up on camera) peaked at 0.68-0.72 -- consistently
+  # above 0.65, consistently below 0.75 -- so 0.75 was silently eating every
+  # genuine sighting. 0.65 is still a row from the same measured sweep, not a
+  # guess, and it accepts a real, documented cost: ~1 in 17 innocent bystander
+  # tracks reads as armed. Put this back to 0.75 before anything but a
+  # supervised demo.
+  min_conf: 0.65
   nms_iou: 0.45
 
   # Cost control, same measured reasoning as gestures: ~12 MB YOLOv8n model,
@@ -42,15 +45,22 @@ weapons:
   every_n_frames: 3
   max_tracks_per_frame: 2
 
-  # Multi-frame voting is MANDATORY. A weapon that appears for a single frame
-  # is a misread, not an arrest.
+  # Multi-frame voting was MANDATORY at 3 -- a weapon that appears for a
+  # single frame is normally a misread, not an arrest -- but that is exactly
+  # the second half of the wait the demo asked to remove: min_conf alone
+  # still gates every read, this just stops making a track wait for 3 of them
+  # to agree before it counts. 1 is the documented floor vote_weapon() itself
+  # accepts (it raises below that), so this is supported, not a hack -- but
+  # it means one convincingly-misread frame is now enough, stacked on top of
+  # min_conf's own loosened false-positive cost above. Put this back to 3
+  # alongside min_conf's 0.75 outside a supervised demo.
   #
   # NOTE: voting is on ARMED / not-armed, NOT on which weapon. Gun-vs-knife
   # plurality would tie and never settle on a person the model keeps
   # reclassifying between the two -- and somebody the model cannot decide is
   # holding a gun or a knife is still, unambiguously, holding something.
   voting:
-    min_frames_agreed: 3
+    min_frames_agreed: 1
     window_frames: 8
 
   # Cheap "has this crop actually changed" gate in front of the model

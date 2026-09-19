@@ -2,8 +2,19 @@
 
 Two free models, both ONNX, both local: a YOLO11n fine-tune that finds the plate
 inside a vehicle crop, and PaddleOCR v4's English recogniser (Apache-2.0) that
-reads it. When the recogniser weights are absent we fall back to Tesseract with
-a plate charset, which is worse but free and already on most systems.
+reads it. Neither ships with this checkout -- `models/anpr/` does not exist and
+nothing in `scripts/fetch_models.py` fetches them, so on a fresh clone this
+falls back automatically, in order:
+
+1. **RapidOCR** (Apache-2.0, `pip install rapidocr-onnxruntime`) -- a pretrained
+   general OCR engine that runs on the ``onnxruntime`` this project already
+   depends on. No system package, no GPU, no training: it ships its own
+   detection+recognition ONNX weights and reads arbitrary alphanumeric text
+   out of the box, a plate crop included. This is what actually reads plates
+   in this checkout right now.
+2. **Tesseract** via ``pytesseract``, if RapidOCR is not installed either --
+   needs the separate ``tesseract-ocr`` system package, so it is usually the
+   one that is NOT available in a sandboxed/no-sudo environment.
 
 All the *judgement* — validation, confusion correction, multi-frame voting —
 lives in ``anpr.py`` as pure functions. This module only produces candidate
@@ -38,13 +49,48 @@ class OnnxPlateReader:
         self._rec_path = Path(block.get("ocr_rec_weights", ""))
         self._det: Any = None
         self._rec: Any = None
+        self._rapidocr: Any = None
         self._use_tesseract = not self._rec_path.exists()
+        # Availability is resolved ONCE here, not re-imported and re-logged
+        # per crop inside _recognise() -- that used to re-trigger the exact
+        # same ImportError on every vehicle track and drown the log within
+        # seconds on a busy scene.
+        self._rapidocr_available = False
+        self._tesseract_available = False
         if self._use_tesseract:
-            logger.warning(
-                "plate recogniser weights missing at %s; falling back to Tesseract. "
-                "Run `make models` for the better free option.",
-                self._rec_path,
-            )
+            try:
+                import rapidocr_onnxruntime  # noqa: F401
+            except ImportError:
+                pass
+            else:
+                self._rapidocr_available = True
+                logger.warning(
+                    "plate recogniser weights missing at %s; reading plates "
+                    "with RapidOCR (pretrained, generic) instead of the "
+                    "plate-tuned PaddleOCR model. Run `make models` for the "
+                    "better, plate-specific option.",
+                    self._rec_path,
+                )
+            if not self._rapidocr_available:
+                try:
+                    import pytesseract  # noqa: F401
+                except ImportError:
+                    logger.error(
+                        "no plate OCR backend available: the ONNX recogniser, "
+                        "RapidOCR and pytesseract are all missing. ANPR "
+                        "cannot read plates. `pip install rapidocr-onnxruntime` "
+                        "is the fastest fix -- no system package needed."
+                    )
+                else:
+                    self._tesseract_available = True
+                    logger.warning(
+                        "plate recogniser weights missing at %s; falling back "
+                        "to Tesseract. Run `make models` for the better free "
+                        "option.",
+                        self._rec_path,
+                    )
+        else:
+            self._tesseract_available = True
 
     def read(self, crop: Any, frame_id: int = 0) -> PlateCandidate | None:
         """Return one raw candidate from one vehicle crop, or None."""
@@ -108,25 +154,48 @@ class OnnxPlateReader:
         return (float(x1), float(y1), float(x2), float(y2)), crop[y1:y2, x1:x2]
 
     def _recognise(self, region: Any) -> tuple[str, float, list[float]]:
-        if self._use_tesseract:
-            return self._tesseract(region)
-        try:
-            return self._paddle(region)
-        except Exception:
-            logger.exception("PaddleOCR recognition failed; falling back to Tesseract")
-            return self._tesseract(region)
+        if not self._use_tesseract:
+            try:
+                return self._paddle(region)
+            except Exception:
+                logger.exception("PaddleOCR recognition failed; falling back")
+        if self._rapidocr_available:
+            try:
+                return self._rapidocr_read(region)
+            except Exception:
+                logger.exception("RapidOCR recognition failed; falling back to Tesseract")
+        return self._tesseract(region)
 
-    def _tesseract(self, region: Any) -> tuple[str, float, list[float]]:
-        try:
-            import pytesseract
-        except ImportError:
-            logger.error(
-                "neither the ONNX recogniser nor pytesseract is available; "
-                "ANPR cannot read plates. Run `make models` or `pip install pytesseract`."
-            )
+    def _rapidocr_read(self, region: Any) -> tuple[str, float, list[float]]:
+        if self._rapidocr is None:
+            from rapidocr_onnxruntime import RapidOCR
+
+            self._rapidocr = RapidOCR()
+        result, _elapse = self._rapidocr(region)
+        if not result:
             return "", 0.0, []
 
+        # RapidOCR is a general text reader, not plate-specific -- a noisy
+        # crop can return more than one line (a sticker, a bolt reflection).
+        # Picking the reading with the most plate-charset characters survives
+        # that better than picking whichever one happened to score highest
+        # raw confidence, since junk text often scores confidently too.
+        best_text, best_conf, best_score = "", 0.0, -1
+        for _box, text, conf_str in result:
+            cleaned = "".join(ch for ch in text.upper() if ch in PLATE_CHARSET)
+            if len(cleaned) > best_score:
+                best_text, best_conf, best_score = cleaned, float(conf_str), len(cleaned)
+        if not best_text:
+            return "", 0.0, []
+        return best_text, best_conf, [best_conf] * len(best_text)
+
+    def _tesseract(self, region: Any) -> tuple[str, float, list[float]]:
+        # Checked once in __init__, not re-imported and re-logged here on every
+        # crop -- see that check's comment for why this used to flood the log.
+        if not self._tesseract_available:
+            return "", 0.0, []
         import cv2
+        import pytesseract
 
         gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
         gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]

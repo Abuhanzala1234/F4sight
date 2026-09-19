@@ -10,11 +10,24 @@ rules:
 
   # --- Debounce (§7.7.4). Blocker #1: without this, one person standing on a
   # --- tripwire produces dozens of alerts a minute.
+  #
+  # DEMO MODE. cooldown_s was 45.0 and max_alerts_per_camera_per_min was 6,
+  # which is correct for a real post: one operator, one screen, a queue that
+  # stays triageable across a 12-hour shift. It is wrong for a live demo,
+  # where somebody holds a knife up, sees one alert, does it again, and
+  # nothing appears for the next 45 seconds because the (camera, track, zone,
+  # rule) key is still inside its cooldown -- which reads as "the system is a
+  # minute behind" rather than "the system already told you once".
+  #
+  # The cost of these values is real and is the thing the original numbers
+  # existed to prevent: a person standing in a zone now re-alerts every ~4s,
+  # and the Alerts queue fills fast. Put both back before this is anything
+  # but a supervised demo.
   debounce:
-    cooldown_s: 45.0
+    cooldown_s: 4.0
     escalate_after_s: 120.0
     correlate_window_s: 8.0       # merge rules on the SAME track into one alert
-    max_alerts_per_camera_per_min: 6
+    max_alerts_per_camera_per_min: 60
     # Key is (camera_id, track_id, zone_id, rule_code) - NOT rule_code alone,
     # so a second intruder is never suppressed by the first.
 

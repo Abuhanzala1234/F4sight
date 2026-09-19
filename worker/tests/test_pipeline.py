@@ -349,7 +349,18 @@ def build_anpr_worker(camera, zones, recorder, *, reader, watchlist=None, anpr_c
         debounce_cfg=DebounceConfig(cooldown_s=45.0, escalate_after_s=120.0),
         frame_queue=_DropOldestQueue(4),
         on_alert=recorder,
-        anpr_cfg=anpr_cfg or AnprConfig(enabled=True, classes=("vehicle",), min_frames_agreed=3),
+        anpr_cfg=anpr_cfg
+        or AnprConfig(
+            enabled=True,
+            classes=("vehicle",),
+            min_frames_agreed=3,
+            # These tests are about the wiring (does a settled plate reach
+            # the rule engine, does a bad backend degrade gracefully), not
+            # about the frame-cadence throttle -- explicit 1 keeps their
+            # frame counts meaning what they say, matching every real read
+            # to a frame the way this whole suite was written to expect.
+            every_n_frames=1,
+        ),
         anpr_reader=reader,
         watchlist=watchlist or WatchlistCache(),
         plate_hmac_key=HMAC_KEY,

@@ -39,7 +39,12 @@ dev = [
 ]
 # Optional accelerators — never required for `make demo` (P10).
 gpu = ["onnxruntime-gpu>=1.17"]
-anpr = ["pytesseract>=0.3.10"]
+# Neither the plate detector nor the PaddleOCR recogniser ships in this repo
+# (models/anpr/ does not exist, and fetch_models.py never fetches them), so
+# ANPR falls back to whichever of these is installed -- rapidocr first
+# (pretrained, no system package), then pytesseract (needs the separate
+# tesseract-ocr system binary too, so it is the one usually missing).
+anpr = ["rapidocr-onnxruntime>=1.2.0", "pytesseract>=0.3.10"]
 
 [project.scripts]
 ibvap-worker = "ibvap_worker.__main__:main"

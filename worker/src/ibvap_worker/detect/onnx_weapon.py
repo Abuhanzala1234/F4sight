@@ -174,8 +174,15 @@ class OnnxWeaponDetector:
     def input_size(self) -> tuple[int, int]:
         return self.cfg.input_size
 
-    def detect(self, letterboxed: np.ndarray) -> WeaponCandidate | None:
-        """Best weapon in one already-letterboxed crop, or None."""
+    def detect(
+        self, letterboxed: np.ndarray, debug: dict[str, Any] | None = None
+    ) -> WeaponCandidate | None:
+        """Best weapon in one already-letterboxed crop, or None.
+
+        ``debug`` is passed straight through to ``decode_weapon_output`` --
+        see that function's docstring for why it exists and why it never
+        changes the result.
+        """
         w, h = self.cfg.input_size
         if letterboxed.shape[:2] != (h, w):
             raise ValueError(
@@ -186,7 +193,9 @@ class OnnxWeaponDetector:
             self._buffer = np.empty((1, 3, h, w), dtype=np.float32)
         preprocess_into(letterboxed, self._buffer[0])
         outputs = self._session.run(None, {self._input_name: self._buffer})
-        return decode_weapon_output(np.asarray(outputs[0]), self.min_conf, self.nms_iou)
+        return decode_weapon_output(
+            np.asarray(outputs[0]), self.min_conf, self.nms_iou, debug=debug
+        )
 
 
 class MockWeaponDetector:
@@ -197,7 +206,9 @@ class MockWeaponDetector:
         self.calls = 0
         self.input_size = (640, 640)
 
-    def detect(self, letterboxed: np.ndarray) -> WeaponCandidate | None:
+    def detect(
+        self, letterboxed: np.ndarray, debug: dict[str, Any] | None = None
+    ) -> WeaponCandidate | None:
         self.calls += 1
         if not self.results:
             return None

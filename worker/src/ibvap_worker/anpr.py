@@ -64,6 +64,25 @@ class AnprConfig:
     max_crops_per_track: int = 12
     region: str | None = "IN"
     hmac_key_env: str = "PLATE_HMAC_KEY"
+    # "a single OCR pass is cheap next to detection" (pipeline.py's
+    # _read_plates docstring) is true for the fine-tuned PaddleOCR-CTC ONNX
+    # model this was designed around -- a few ms, resize+forward+decode. It is
+    # not true of either fallback this repo actually ships with today
+    # (models/anpr/ does not exist): RapidOCR runs a real text-DETECTION CNN
+    # internally on every crop and measured 170-1700ms per call on this CPU,
+    # which starved the shared detector thread and pushed its own inference
+    # time from ~30ms to ~200ms with frames dropping every second. Gated the
+    # same way weapon/gesture already gate their per-frame model calls; unlike
+    # those, this is cheap to raise back to 1 once real plate-specific ONNX
+    # weights are in place (see the class docstring above the fallback note).
+    every_n_frames: int = 5
+    # weapon/gesture both cap how many tracks get a model call in one frame
+    # (max_tracks_per_frame); this had no such cap at all, so an eligible
+    # frame with 5 vehicles in it fired 5 sequential OCR calls back to back --
+    # with RapidOCR at 170-1700ms each, one frame could stall the stage
+    # thread for several seconds. every_n_frames alone bounds frequency, not
+    # worst-case burst size; this bounds the burst.
+    max_tracks_per_frame: int = 2
 
     @classmethod
     def from_mapping(cls, cfg: Mapping[str, Any]) -> AnprConfig:
@@ -79,6 +98,8 @@ class AnprConfig:
             max_crops_per_track=int(block.get("max_crops_per_track", 12)),
             region=block.get("region", "IN"),
             hmac_key_env=str(storage.get("hmac_key_env", "PLATE_HMAC_KEY")),
+            every_n_frames=int(block.get("every_n_frames", 5)),
+            max_tracks_per_frame=int(block.get("max_tracks_per_frame", 2)),
         )
 
 

@@ -9,7 +9,19 @@ anpr:
   min_plate_width_px: 80          # below this, OCR on CCTV is guessing
   plate_conf: 0.45
   max_crops_per_track: 12
+  max_tracks_per_frame: 1          # at most one heavy OCR call per eligible frame
   classes: [vehicle]               # which of our own taxonomy's classes get cropped
+
+  # Only every Nth frame gets a real OCR attempt per unsettled vehicle track
+  # (a cached, already-settled hit is unaffected -- it returns every frame
+  # regardless). "cheap next to detection" only holds for the fine-tuned
+  # PaddleOCR-CTC ONNX model this was designed around; the fallbacks this repo
+  # actually ships with (models/anpr/ is empty by default) are not cheap --
+  # RapidOCR measured 170-1700ms per crop on a laptop CPU and, run every
+  # frame, starved the shared detector thread badly enough to push its own
+  # inference time from ~30ms to ~200ms. Safe to drop back to 1 once real
+  # plate-specific ONNX weights are in place.
+  every_n_frames: 10
 
   # How often the worker reloads watchlist_vehicle from Postgres. A DB that is
   # not up yet just means no NEW hits until the next refresh succeeds (P9) --
