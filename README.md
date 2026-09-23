@@ -17,6 +17,7 @@ It runs offline, on one machine, entirely on free and open-source parts. **No AP
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [What weapon detection can and cannot do](#what-weapon-detection-can-and-cannot-do-measured)
 - [Quick start](#quick-start)
 - [Hard gates — what this repo cannot do for itself](#hard-gates)
 - [Architecture](#architecture)
@@ -36,7 +37,7 @@ It runs offline, on one machine, entirely on free and open-source parts. **No AP
 | **ANPR** | Two-stage plate detect + OCR with **multi-frame voting**; the database stores an HMAC, never a plate |
 | **Face matching** | Interface, config, DB schema and privacy invariants exist; `faces.py` itself (§7.10) is **not yet implemented** — see Gate 9 |
 | **Hand signals** | YOLO11-pose keypoints on tracked people → surrender / signalling / pointing, voted across frames. Contextual: enriches a real event, never raises one alone |
-| **Weapon detection** | Two-class (gun/knife) detector on person crops, voted on *armed* rather than on weapon type. Threshold tuned against real footage to zero false alarms — see `config/weapons.yaml` for the measured curve |
+| **Weapon detection** | Two-class (gun/knife) detector on person crops, voted on *armed* rather than on weapon type — somebody the model cannot decide between a gun and a knife is still, unambiguously, armed. `config/weapons.yaml` carries the measured threshold curve **and** its honest limit (below) |
 | **Suspicious fast movement** | Running detected in *body-heights per second*, so one threshold means the same thing at any distance from the camera. No model — the tracker already measured it. Tracker id-switches are discarded as artefacts, not escalated as sprinting intruders |
 | **Facial recognition** | SCRFD detect + ArcFace embed against an admin-curated, audited watchlist. OPT-IN, off by default (P6) — no enrolment path exists in the worker, and a non-matching embedding is held only for the life of its track, never written anywhere |
 | **Group behaviour** | Converging and dispersing formations, measured from track spread over a window — the coordinated case no per-track rule can see |
@@ -44,6 +45,29 @@ It runs offline, on one machine, entirely on free and open-source parts. **No AP
 | **Tamper-evident evidence** | RFC 8785 canonicalisation → SHA-256 → Merkle batch → Hyperledger Fabric |
 | **Environmental adaptation** | EVQM measures brightness, contrast, blur, fog, noise and picks a processing profile, with hysteresis so a passing headlight cannot flip it |
 | **Operator console** | Live HLS wall, keyboard-first triage, risk waterfall, verification panel |
+
+### What weapon detection can and cannot do, measured
+
+The one capability worth stating plainly, because a demo can easily overstate it.
+Scores from live tests on a phone camera, same scene, same session:
+
+| Subject | Model's weapon score |
+| --- | --- |
+| Knife held up, ~1 m, blade side-on | 0.68 – **0.744** |
+| Knife at 4–5 m | 0.32 – **0.536** |
+| **Phone in a hand**, no weapon at all | up to **0.707** |
+| Empty hands, awkward angle | up to 0.639 |
+
+The distributions **overlap**, and at 4–5 m the false readings outscore the real
+knife. So no confidence threshold both catches a knife across a room and never
+misfires on a phone: at 0.75 the real knife is rejected, at 0.65 a phone fires,
+at 0.45 ordinary people fire constantly. This is a property of a small,
+free, offline two-class model, not a tuning mistake — and it is why the shipped
+default errs high (P3: an alert that cries wolf teaches an operator to ignore
+the real one). Weapon detection here is dependable at **close range with the
+blade visible**; treat anything beyond that as unproven. The durable fix is not
+a threshold but a discriminator — rejecting a weapon box that lands on a phone
+the primary detector already sees (COCO class 67) — which is not built yet.
 
 ### Three things it deliberately does *not* do
 
@@ -78,6 +102,30 @@ Want the steps individually instead (e.g. to only bring infra up, or to
 re-run just one stage)? `make demo`'s prerequisites and recipe are just
 `install`, `up`, `migrate`, `seed`, `models`, `fixtures`, and the dashboard
 build — each is its own target and safe to run on its own; see `make help`.
+
+### Running it on a GPU, and keeping it running
+
+`make demo` uses the `laptop` profile, which is CPU-only so that it works on any
+machine. On a box with an NVIDIA GPU and `onnxruntime-gpu` installed, run the
+worker on the `laptop-gpu` profile instead — measured on an RTX 3050 laptop with
+two cameras, that is the difference between ~40% of frames dropped and ~0%:
+
+```bash
+scripts/worker_supervised.sh laptop-gpu BOP-03
+```
+
+That wrapper does two things `make worker` does not. It **restarts the worker if
+it dies** — a fault inside the CUDA driver aborts the process in a way Python
+cannot catch, and without a supervisor every camera silently stops being
+analysed until a human notices. And it **loads `.env` into the environment**,
+which the worker needs for `PLATE_HMAC_KEY`: without it ANPR still reads plates
+but can never match one against the watchlist.
+
+One measured caveat, because it cost hours to find: on a laptop, **an unplugged
+machine is a different machine**. On battery, Windows power-capped the same GPU
+to 9.3 W and each detector call went from ~45 ms to ~700 ms, with frames
+dropping and second-stage models starved. `nvidia-smi -q -d PERFORMANCE` names
+it (`SW Power Cap: Active`). Plug in before drawing conclusions about speed.
 
 ### Bringing your own camera
 
@@ -294,7 +342,7 @@ make lint        # ruff + black + mypy + tsc
 make bench       # → docs/BENCH.md
 ```
 
-**384 Python tests + 6 TypeScript tests**, all passing with no infrastructure required —
+**386 Python tests + 6 TypeScript tests**, all passing with no infrastructure required —
 checked on every push by [GitHub Actions](.github/workflows/ci.yml), which runs the
 identical `make test`/`make lint` commands rather than a separate CI-only path.
 
