@@ -22,7 +22,11 @@ detector:
   # gets no such option from this codebase, so setting this true here would just
   # misreport fp16=True in the startup log while actually still running FP32.
   fp16: false
-  batching: {max_batch: 4, max_wait_ms: 15}
+  # 40ms, not 15: measured on this GPU a batch of 4 costs 29ms against 18ms
+  # for a batch of 1, so pairing frames across cameras is nearly free per
+  # frame, and with 2-4 cameras at 10 fps a second frame usually lands inside
+  # 40ms. Latency cost: at most 40ms on a sub-second alert path.
+  batching: {max_batch: 4, max_wait_ms: 40}
   providers: [CUDAExecutionProvider, CPUExecutionProvider]
 pipeline:
   clip_writer_threads: 1

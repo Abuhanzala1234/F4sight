@@ -21,12 +21,19 @@ invariant holds here too: nothing downstream ever sees model-space coordinates.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 import numpy as np
 
 from ..gesture import COCO_KEYPOINTS, Keypoint, Pose
-from . import DetectorConfig, resolve_execution_providers
+from . import (
+    DetectorConfig,
+    first_provider_is_gpu,
+    gpu_run_lock,
+    resolve_execution_providers,
+    session_options,
+)
 from .onnx_yolo import _preload_gpu_libraries, preprocess_into
 
 logger = logging.getLogger(__name__)
@@ -95,12 +102,8 @@ class OnnxPoseEstimator:
 
         _preload_gpu_libraries(ort, cfg)
 
-        options = ort.SessionOptions()
-        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        if cfg.intra_op_threads > 0:
-            options.intra_op_num_threads = cfg.intra_op_threads
-
         providers = resolve_execution_providers(cfg, ort.get_available_providers())
+        options = session_options(ort, cfg, gpu=first_provider_is_gpu(providers))
         try:
             self._session = ort.InferenceSession(str(weights), options, providers=providers)
         except Exception:
@@ -111,11 +114,18 @@ class OnnxPoseEstimator:
                 [p[0] if isinstance(p, tuple) else p for p in providers],
             )
             self._session = ort.InferenceSession(
-                str(weights), options, providers=["CPUExecutionProvider"]
+                str(weights),
+                session_options(ort, cfg, gpu=False),
+                providers=["CPUExecutionProvider"],
             )
 
         self._input_name = self._session.get_inputs()[0].name
         self._buffer: np.ndarray | None = None
+        # Shared by every camera's stage thread -- see OnnxWeaponDetector's
+        # matching lock: unguarded, one camera's crop overwrites the buffer
+        # mid-run for another's.
+        self._buffer_lock = threading.Lock()
+        self._run_lock = gpu_run_lock(self._session)
         logger.info(
             "onnx pose estimator loaded weights=%s providers=%s",
             weights,
@@ -140,10 +150,12 @@ class OnnxPoseEstimator:
                 f"pose input must be pre-letterboxed to {w}x{h}, got "
                 f"{letterboxed.shape[1]}x{letterboxed.shape[0]}"
             )
-        if self._buffer is None:
-            self._buffer = np.empty((1, 3, h, w), dtype=np.float32)
-        preprocess_into(letterboxed, self._buffer[0])
-        outputs = self._session.run(None, {self._input_name: self._buffer})
+        with self._buffer_lock:
+            if self._buffer is None:
+                self._buffer = np.empty((1, 3, h, w), dtype=np.float32)
+            preprocess_into(letterboxed, self._buffer[0])
+            with self._run_lock:
+                outputs = self._session.run(None, {self._input_name: self._buffer})
         return decode_pose_output(np.asarray(outputs[0]), self.min_person_conf)
 
 

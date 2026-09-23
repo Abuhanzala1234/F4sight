@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 from ..faces import FaceConfig, FaceDetection
-from . import DetectorConfig, resolve_execution_providers
+from . import DetectorConfig, gpu_run_lock, resolve_execution_providers
 from .onnx_weapon import nms
 
 logger = logging.getLogger(__name__)
@@ -211,6 +211,7 @@ class OnnxFaceDetector:
                 str(weights), options, providers=["CPUExecutionProvider"]
             )
         self._input_name = self._session.get_inputs()[0].name
+        self._run_lock = gpu_run_lock(self._session)
         logger.info(
             "onnx face detector loaded weights=%s providers=%s",
             weights,
@@ -236,7 +237,8 @@ class OnnxFaceDetector:
         # module's test for the gap this closes.
         blob = letterboxed.transpose(2, 0, 1)[::-1].astype(np.float32)
         blob = (blob - 127.5) / 128.0
-        outputs = self._session.run(None, {self._input_name: blob[None]})
+        with self._run_lock:
+            outputs = self._session.run(None, {self._input_name: blob[None]})
         return decode_scrfd(
             outputs,
             self.cfg.input_size,
@@ -268,6 +270,7 @@ class OnnxFaceEmbedder:
                 str(weights), options, providers=["CPUExecutionProvider"]
             )
         self._input_name = self._session.get_inputs()[0].name
+        self._run_lock = gpu_run_lock(self._session)
         logger.info("onnx face embedder loaded weights=%s", weights)
 
     def embed(self, aligned_112: np.ndarray) -> tuple[float, ...]:
@@ -276,7 +279,8 @@ class OnnxFaceEmbedder:
         # ArcFace's own preprocessing: BGR->RGB, (x - 127.5) / 128.
         blob = aligned_112.transpose(2, 0, 1)[::-1].astype(np.float32)
         blob = (blob - 127.5) / 128.0
-        outputs = self._session.run(None, {self._input_name: blob[None]})
+        with self._run_lock:
+            outputs = self._session.run(None, {self._input_name: blob[None]})
         return tuple(float(v) for v in outputs[0][0])
 
 

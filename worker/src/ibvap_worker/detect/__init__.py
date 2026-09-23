@@ -17,8 +17,10 @@ the wrong moment.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -46,6 +48,51 @@ DEFAULT_PROVIDERS: tuple[str, ...] = (
 #: Providers for which ``fp16`` and the GPU tuning knobs mean anything. Setting
 #: them on CPU or CoreML is not an error, it is just noise in the session log.
 GPU_PROVIDERS: frozenset[str] = frozenset({"TensorrtExecutionProvider", "CUDAExecutionProvider"})
+
+#: One queue for every session placed on the GPU. The detector (inference
+#: thread) and the weapon/pose models (one stage thread per camera) otherwise
+#: call ``run`` concurrently on one laptop GPU and stall each other at every
+#: sync: measured live, the detector went from 18-29ms alone to ~200ms per
+#: call with 2 cameras. Serialised, it waits for at most one 12-16ms
+#: weapon/pose call instead.
+GPU_RUN_LOCK = threading.Lock()
+
+
+def first_provider_is_gpu(providers: Sequence[Any]) -> bool:
+    """Whether ``resolve_execution_providers`` output will try a GPU first."""
+    if not providers:
+        return False
+    first = providers[0][0] if isinstance(providers[0], tuple) else providers[0]
+    return first in GPU_PROVIDERS
+
+
+def session_options(ort: Any, cfg: DetectorConfig, *, gpu: bool) -> Any:
+    """SessionOptions for one backend, tuned for where it will actually run.
+
+    On a GPU the CPU thread pool has almost nothing to compute, and ORT's
+    default is to keep its idle threads spin-waiting. Measured on this
+    project's detector (CUDA, RTX 3050 laptop): default settings burned
+    ~100ms of CPU per ~25ms call; one thread with spinning off burned ~24ms
+    for the same wall time. With three GPU sessions in one worker that spin
+    was starving the one inference thread feeding every camera.
+    """
+    options = ort.SessionOptions()
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    if gpu:
+        options.intra_op_num_threads = 1
+        options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        options.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    elif cfg.intra_op_threads > 0:
+        options.intra_op_num_threads = cfg.intra_op_threads
+    return options
+
+
+def gpu_run_lock(session: Any) -> AbstractContextManager[Any]:
+    """What a backend must hold around ``session.run``: the shared GPU lock if
+    the session actually landed on a GPU provider, otherwise nothing."""
+    if session.get_providers()[0] in GPU_PROVIDERS:
+        return GPU_RUN_LOCK
+    return nullcontext()
 
 
 def _as_provider_tuple(value: Any) -> tuple[str, ...]:

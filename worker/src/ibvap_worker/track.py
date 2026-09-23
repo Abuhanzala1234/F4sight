@@ -27,6 +27,12 @@ from typing import Any
 
 import numpy as np
 
+# Module level, not inside _linear_assignment: scipy.optimize is a multi-second
+# cold import from a venv on a WSL-mounted Windows drive, and paying it lazily
+# stalled the first frame that had tracks to match -- profiled live, it was
+# 18% of the stage thread's samples over a 60s run, all inside importlib.
+from scipy.optimize import linear_sum_assignment
+
 from .geometry import iou
 from .types import BoxXYXY, Detection, Point, Track
 
@@ -268,8 +274,6 @@ def _linear_assignment(
     """Hungarian assignment, rejecting pairs whose cost exceeds ``threshold``."""
     if cost.size == 0:
         return [], list(range(cost.shape[0])), list(range(cost.shape[1]))
-
-    from scipy.optimize import linear_sum_assignment
 
     rows, cols = linear_sum_assignment(cost)
     matches: list[tuple[int, int]] = []

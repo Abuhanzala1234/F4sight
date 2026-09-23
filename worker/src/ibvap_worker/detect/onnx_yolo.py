@@ -21,7 +21,14 @@ from typing import Any
 import numpy as np
 
 from ..types import RawDetection
-from . import GPU_PROVIDERS, DetectorConfig, resolve_execution_providers
+from . import (
+    GPU_PROVIDERS,
+    DetectorConfig,
+    first_provider_is_gpu,
+    gpu_run_lock,
+    resolve_execution_providers,
+    session_options,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,12 +110,8 @@ class OnnxYoloDetector:
 
         _preload_gpu_libraries(ort, cfg)
 
-        options = ort.SessionOptions()
-        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        if cfg.intra_op_threads > 0:
-            options.intra_op_num_threads = cfg.intra_op_threads
-
         providers = resolve_execution_providers(cfg, ort.get_available_providers())
+        options = session_options(ort, cfg, gpu=first_provider_is_gpu(providers))
         if any(
             (p[0] if isinstance(p, tuple) else p) == "TensorrtExecutionProvider" for p in providers
         ):
@@ -130,12 +133,20 @@ class OnnxYoloDetector:
                 [p[0] if isinstance(p, tuple) else p for p in providers],
             )
             self._session = ort.InferenceSession(
-                str(weights), options, providers=["CPUExecutionProvider"]
+                str(weights),
+                session_options(ort, cfg, gpu=False),
+                providers=["CPUExecutionProvider"],
             )
 
         self._input_name = self._session.get_inputs()[0].name
         self._providers = self._session.get_providers()
         self._buffer: np.ndarray | None = None
+        self._run_lock = gpu_run_lock(self._session)
+        #: Cumulative time per phase of infer(); the stats loop logs deltas,
+        #: so a slow detector says WHERE it is slow, not just that it is.
+        self.phase_ms: dict[str, float] = dict.fromkeys(
+            ("prepare", "gpu_queue_wait", "run", "postprocess"), 0.0
+        )
         logger.info(
             "onnx detector loaded weights=%s providers=%s fp16=%s",
             weights,
@@ -176,20 +187,41 @@ class OnnxYoloDetector:
         dummy = np.zeros((1, 3, h, w), dtype=np.float32)
         started = time.monotonic()
         for i in range(max(1, n)):
-            self._session.run(None, {self._input_name: dummy})
+            with self._run_lock:
+                self._session.run(None, {self._input_name: dummy})
             if i == 0:
                 logger.info(
                     "detector first inference took %.0f ms (cold start)",
                     (time.monotonic() - started) * 1000,
                 )
+        # On a GPU every new batch shape is planned on first use, and live
+        # batches are 1..max_batch -- warming only size 1 left the first real
+        # multi-camera batches to pay that cost (~470ms, measured) on air.
+        if self.on_gpu:
+            for size in range(2, max(2, self.cfg.max_batch) + 1):
+                batch = np.zeros((size, 3, h, w), dtype=np.float32)
+                for _ in range(2):
+                    with self._run_lock:
+                        self._session.run(None, {self._input_name: batch})
         return time.monotonic() - started
 
     def infer(self, images: Sequence[Any]) -> list[list[RawDetection]]:
         if not images:
             return []
+        t0 = time.perf_counter()
         batch = self._prepare_batch(images)
-        outputs = self._session.run(None, {self._input_name: batch})[0]
-        return [self._postprocess(outputs[i]) for i in range(len(images))]
+        t1 = time.perf_counter()
+        with self._run_lock:
+            t2 = time.perf_counter()
+            outputs = self._session.run(None, {self._input_name: batch})[0]
+        t3 = time.perf_counter()
+        results = [self._postprocess(outputs[i]) for i in range(len(images))]
+        t = self.phase_ms
+        t["prepare"] += (t1 - t0) * 1000
+        t["gpu_queue_wait"] += (t2 - t1) * 1000
+        t["run"] += (t3 - t2) * 1000
+        t["postprocess"] += (time.perf_counter() - t3) * 1000
+        return results
 
     # -- internals ---------------------------------------------------------
 

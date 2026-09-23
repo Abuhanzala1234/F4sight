@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from ..db import get_db
 from ..models import Alert, AuditLog, EvidenceItem
-from ..schemas import AdjudicateIn, AlertDetail, AlertPage, AlertSummary
+from ..schemas import AdjudicateIn, AlertDetail, AlertId, AlertPage, AlertSummary
 from ..security import RequireInvestigator, RequireOperator, RequireViewer
 from ..settings import Settings, get_settings
 
@@ -99,7 +99,7 @@ async def list_alerts(
 
 @router.get("/{alert_id}", response_model=AlertDetail)
 async def get_alert(
-    alert_id: str,
+    alert_id: AlertId,
     principal: RequireViewer,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Alert:
@@ -115,7 +115,7 @@ async def get_alert(
 
 @router.post("/{alert_id}/ack", response_model=AlertSummary)
 async def acknowledge(
-    alert_id: str,
+    alert_id: AlertId,
     principal: RequireOperator,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Alert:
@@ -137,7 +137,7 @@ async def acknowledge(
 
 @router.post("/{alert_id}/adjudicate", response_model=AlertSummary)
 async def adjudicate(
-    alert_id: str,
+    alert_id: AlertId,
     payload: AdjudicateIn,
     principal: RequireOperator,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -168,7 +168,7 @@ async def adjudicate(
 
 @router.get("/{alert_id}/evidence/{item_id}")
 async def evidence_url(
-    alert_id: str,
+    alert_id: AlertId,
     item_id: str,
     principal: RequireInvestigator,
     db: Annotated[AsyncSession, Depends(get_db)],

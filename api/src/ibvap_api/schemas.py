@@ -9,9 +9,20 @@ audit row on the way (P6, §12).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
+from fastapi import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+#: An alert id in a URL path. Validated here so a malformed one (the dashboard
+#: once sent the literal string "undefined") is a 422 at the edge rather than
+#: a Postgres DataError surfacing as a 500.
+AlertId = Annotated[
+    str,
+    Path(
+        pattern=r"^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$"
+    ),
+]
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
 AlertStatus = Literal["raised", "acknowledged", "adjudicated"]

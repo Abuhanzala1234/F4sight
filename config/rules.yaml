@@ -23,11 +23,22 @@ rules:
   # existed to prevent: a person standing in a zone now re-alerts every ~4s,
   # and the Alerts queue fills fast. Put both back before this is anything
   # but a supervised demo.
+  #
+  # Raised from 4s/60 to 15s/20 after a live 4-camera footage run: at 4s, one
+  # camera raised 160 alerts in ~5 minutes (the same people re-triggering the
+  # same rules every few seconds), each one encoding a snapshot + clip -- CPU
+  # the detector needed, and an Alerts queue nobody could read. The key is
+  # still (camera, track, zone, rule), so a NEW person or a DIFFERENT rule
+  # (a weapon appearing on someone already flagged for a tripwire) still
+  # alerts instantly; only the same thing repeating is held back.
   debounce:
-    cooldown_s: 4.0
+    cooldown_s: 15.0
     escalate_after_s: 120.0
     correlate_window_s: 8.0       # merge rules on the SAME track into one alert
-    max_alerts_per_camera_per_min: 60
+    max_alerts_per_camera_per_min: 20
+    # High-weight alerts (WEAPON_VISIBLE = 75) skip that ceiling entirely --
+    # a camera flooded with low-weight noise must never drop a weapon.
+    rate_limit_exempt_min_weight: 60.0
     # Key is (camera_id, track_id, zone_id, rule_code) - NOT rule_code alone,
     # so a second intruder is never suppressed by the first.
 

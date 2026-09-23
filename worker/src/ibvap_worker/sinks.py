@@ -89,17 +89,25 @@ class AlertRecord:
         }
 
     def summary(self) -> dict[str, Any]:
-        """The payload pushed over WebSocket — small enough for a live feed."""
+        """The payload pushed over WebSocket — small enough for a live feed.
+
+        Field-for-field the API's ``AlertSummary`` (api/.../schemas.py), which
+        is what the dashboard reads for both the REST list and live pushes.
+        It used to say ``alert_id``/``camera_code``: every live alert then had
+        no ``id``, and opening one requested ``/alerts/undefined`` (a 500).
+        """
         return {
-            "alert_id": self.alert_id,
-            "site_code": self.site_code,
-            "camera_code": self.camera_code,
+            "id": self.alert_id,
+            "site_id": self.site_id,
+            "camera_id": self.camera_id,
             "kind": self.kind,
             "severity": self.severity,
             "risk_score": self.risk_score,
             "reason_codes": list(self.reason_codes),
             "ts_utc": self.ts_utc,
             "status": self.status,
+            "adjudication": None,
+            "ledger_status": self.ledger_status,
         }
 
 

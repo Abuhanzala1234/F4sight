@@ -26,6 +26,7 @@ from sqlalchemy.orm import selectinload
 from ..db import get_db
 from ..models import Alert, AuditLog, LedgerAnchorBatch, LedgerAnchorEntry
 from ..schemas import (
+    AlertId,
     DocumentVerifyIn,
     EvidenceItemVerification,
     LedgerInfoOut,
@@ -42,7 +43,7 @@ router = APIRouter(tags=["verify"])
 
 @router.get("/alerts/{alert_id}/verify", response_model=VerificationOut)
 async def verify_alert(
-    alert_id: str,
+    alert_id: AlertId,
     principal: RequireViewer,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> VerificationOut:

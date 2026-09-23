@@ -119,12 +119,27 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
     // object", a solid box means "the specific threat region inside it",
     // matching how a weapon detector's own reference imagery draws it (a
     // small solid box on the weapon, nested inside the person's own box).
-    function drawSolidBox(x: number, y: number, w: number, h: number, label: string) {
+    function drawSolidBox(
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      label: string,
+      canvasH: number,
+    ) {
       ctx!.strokeStyle = WEAPON_COLOR;
       ctx!.lineWidth = 2;
       ctx!.strokeRect(x, y, w, h);
 
-      const fontPx = Math.max(9, Math.round(h * 0.5));
+      // Scaled to the CANVAS's own height, like every other label this
+      // overlay draws -- NOT to this box's own height. A weapon box is often
+      // small (a gun/knife crop is a fraction of the person's own box), and
+      // half of a small box's height still produced a chip wider and taller
+      // than the box itself, reading as the label "taking over the screen"
+      // on anything but a large, confident detection. Clamped both ends so
+      // it never goes unreadably small on a huge box or disproportionately
+      // large on a tiny one.
+      const fontPx = Math.max(9, Math.min(15, Math.round(canvasH * 0.02)));
       ctx!.font = `700 ${fontPx}px "IBM Plex Mono", monospace`;
       const textW = ctx!.measureText(label).width;
       const padX = 4;
@@ -211,6 +226,7 @@ export function DetectionOverlay({ active, camera }: { active: boolean; camera: 
             (wx2 - wx1) * scale,
             (wy2 - wy1) * scale,
             track.weapon.weapon_type.toUpperCase(),
+            h,
           );
         }
       }

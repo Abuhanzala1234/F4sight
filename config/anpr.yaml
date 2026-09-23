@@ -23,6 +23,18 @@ anpr:
   # plate-specific ONNX weights are in place.
   every_n_frames: 10
 
+  # RapidOCR fallback tuning (plate_ocr.py). Its stock defaults cost ~520ms
+  # per read on a laptop CPU for two reasons, both measured: its text detector
+  # upscales every image until the SHORT side reaches 736px (a ~300x120 plate
+  # strip became ~1840x736 before detection even ran), and it builds its three
+  # ONNX sessions with no thread cap, so each one grabs every core and fights
+  # the primary detector for them -- which is how a vehicle on screen pushed
+  # primary inference from ~80ms to 600-800ms in a live CCTV run. 320px and 2
+  # threads, plus skipping its 180-degree angle classifier (plates are never
+  # upside down), measured 106ms on the same crop and still read the plate.
+  ocr_threads: 2
+  ocr_det_limit_side_len: 320
+
   # How often the worker reloads watchlist_vehicle from Postgres. A DB that is
   # not up yet just means no NEW hits until the next refresh succeeds (P9) --
   # the worker keeps reading and voting on plates regardless.

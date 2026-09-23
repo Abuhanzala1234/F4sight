@@ -28,7 +28,7 @@ detect/onnx_weapon.py.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 __all__ = [
@@ -62,6 +62,15 @@ class WeaponConfig:
     max_tracks_per_frame: int = 2
     min_frames_agreed: int = 3
     window_frames: int = 8
+    # Separate from min_frames_agreed: that one gates whether ARMED fires at
+    # all (kept low for an instant trigger). This one only smooths which
+    # weapon TYPE is displayed once armed -- see WeaponVoter.add() below.
+    type_min_frames_agreed: int = 1
+    #: 0 = inherit the primary detector's intra_op_threads (build_weapon in
+    #: __main__.py does this via dataclasses.replace). Set explicitly to give
+    #: this crop-fed session fewer threads than the primary detector's
+    #: full-frame one -- see gesture.py's matching field for the full reasoning.
+    intra_op_threads: int = 0
     #: Cheap "has this crop changed" gate in front of the model (activity.py).
     activity_gate: Mapping[str, Any] = field(default_factory=dict)
 
@@ -81,6 +90,8 @@ class WeaponConfig:
             max_tracks_per_frame=int(block.get("max_tracks_per_frame", 2)),
             min_frames_agreed=int(voting.get("min_frames_agreed", 3)),
             window_frames=int(voting.get("window_frames", 8)),
+            type_min_frames_agreed=int(voting.get("type_min_frames_agreed", 1)),
+            intra_op_threads=int(block.get("intra_op_threads", 0)),
             activity_gate=dict(block.get("activity_gate", {}) or {}),
         )
 
@@ -152,19 +163,46 @@ def vote_weapon(
 class WeaponVoter:
     """Rolling per-track window (mirrors GestureVoter).
 
-    Never latches: a person who set something down stops being armed, so this
-    reports what the recent window says every time it is asked.
+    Never latches on ARMED: a person who set something down stops being
+    armed, so that part reports what the recent window says every time it is
+    asked. The displayed weapon TYPE is a separate, smaller latch (see
+    ``type_min_frames_agreed``): at ``min_frames_agreed=1`` (an instant-alert
+    demo setting), two single, differently-classified frames tie in
+    ``vote_weapon``'s plurality and the label can flip between GUNS and KNIFE
+    on every ambiguous read. This does not change when ARMED fires, only
+    which type is shown once it has.
     """
 
     min_frames_agreed: int = 3
     window_frames: int = 8
+    type_min_frames_agreed: int = 1
     _candidates: list[WeaponCandidate | None] = field(default_factory=list, repr=False)
+    _displayed_cls: str | None = field(default=None, repr=False)
 
     def add(self, candidate: WeaponCandidate | None) -> WeaponSettled | None:
         self._candidates.append(candidate)
         if len(self._candidates) > self.window_frames:
             self._candidates = self._candidates[-self.window_frames :]
-        return vote_weapon(self._candidates, min_frames_agreed=self.min_frames_agreed)
+        settled = vote_weapon(self._candidates, min_frames_agreed=self.min_frames_agreed)
+        if settled is None:
+            self._displayed_cls = None
+            return None
+
+        seen = [c for c in self._candidates if c is not None]
+        challenger_votes = sum(1 for c in seen if c.cls == settled.cls)
+        if (
+            self._displayed_cls is not None
+            and settled.cls != self._displayed_cls
+            and challenger_votes < self.type_min_frames_agreed
+        ):
+            # Not enough evidence yet to flip the label away from what is
+            # already on the operator's screen -- keep showing it, but with
+            # this frame's real confidence/box/frame-counts, not stale ones.
+            settled = replace(settled, cls=self._displayed_cls)
+        else:
+            self._displayed_cls = settled.cls
+        return settled
 
     def reset(self) -> None:
         self._candidates.clear()
+        self._displayed_cls = None

@@ -88,6 +88,14 @@ class GestureConfig:
     max_tracks_per_frame: int = 2
     min_frames_agreed: int = 4
     window_frames: int = 8
+    #: 0 = inherit the primary detector's intra_op_threads (build_pose in
+    #: __main__.py does this via dataclasses.replace). Set explicitly to give
+    #: this crop-fed session fewer threads than the primary detector's
+    #: full-frame one -- a 640x640 pose model on a single person crop has far
+    #: less work per call than the primary detector's batch, so handing it the
+    #: same thread count it inherits by default is more threads than the work
+    #: needs, for no benefit.
+    intra_op_threads: int = 0
     raise_margin: float = 0.15
     level_tolerance: float = 0.25
     extend_ratio: float = 0.85
@@ -113,6 +121,7 @@ class GestureConfig:
             max_tracks_per_frame=int(block.get("max_tracks_per_frame", 2)),
             min_frames_agreed=int(voting.get("min_frames_agreed", 4)),
             window_frames=int(voting.get("window_frames", 8)),
+            intra_op_threads=int(block.get("intra_op_threads", 0)),
             raise_margin=float(thresholds.get("raise_margin", 0.15)),
             level_tolerance=float(thresholds.get("level_tolerance", 0.25)),
             extend_ratio=float(thresholds.get("extend_ratio", 0.85)),

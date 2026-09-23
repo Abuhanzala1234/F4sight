@@ -163,6 +163,52 @@ class TestWeaponVoter:
         assert voter.add(WeaponCandidate("guns", 0.9)) is None
 
 
+class TestSharedDetectorConcurrency:
+    def test_two_cameras_never_run_on_each_others_crop(self):
+        """One OnnxWeaponDetector serves every camera's stage thread and
+        reuses one input buffer. Unlocked, camera B's crop overwrote that
+        buffer while camera A's run was still reading it -- A's weapon check
+        then ran on B's pixels. The fake session fails the test if its input
+        changes mid-run or is ever a mix of two crops."""
+        import threading
+        import time
+        from contextlib import nullcontext
+
+        from ibvap_worker.detect import DetectorConfig
+        from ibvap_worker.detect.onnx_weapon import OnnxWeaponDetector
+
+        corrupted: list[str] = []
+
+        class SlowFakeSession:
+            def run(self, _outputs, feeds):
+                buf = next(iter(feeds.values()))
+                before = buf.copy()
+                time.sleep(0.002)
+                if not np.array_equal(before, buf):
+                    corrupted.append("changed mid-run")
+                elif before.min() != before.max():
+                    corrupted.append("mixed crops")
+                return [np.zeros((1, CHANNELS, 10), dtype=np.float32)]
+
+        det = OnnxWeaponDetector.__new__(OnnxWeaponDetector)
+        det.cfg = DetectorConfig(input_size=(64, 64))
+        det.min_conf, det.nms_iou = 0.75, 0.45
+        det._session, det._input_name, det._buffer = SlowFakeSession(), "images", None
+        det._buffer_lock, det._run_lock = threading.Lock(), nullcontext()
+
+        def camera(value: int) -> None:
+            crop = np.full((64, 64, 3), value, dtype=np.uint8)
+            for _ in range(40):
+                det.detect(crop)
+
+        threads = [threading.Thread(target=camera, args=(v,)) for v in (0, 255)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert corrupted == []
+
+
 class TestConfig:
     def test_threshold_is_stricter_than_the_detector_default(self):
         """0.45 is the primary detector's floor; weapons must be stricter."""

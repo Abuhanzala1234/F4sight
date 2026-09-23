@@ -11,6 +11,19 @@ weapons:
   weights: models/weapon/weapon-yolov8.onnx
   input_size: [640, 640]
 
+  # NOT the fix for the 400-600ms stalls a live demo run showed (that was
+  # AlertAssembler.build() -- JPEG snapshot + MP4 clip mux + hash + MinIO PUT
+  # -- running synchronously on the per-camera stage thread; see __main__.py's
+  # on_alert and its evidence_pool). Checked this session: build_weapon()
+  # already inherits detector.yaml's intra_op_threads=4 via
+  # dataclasses.replace(), so this session was never actually uncapped.
+  # This override exists for a smaller, real reason: a 640x640 model on one
+  # person crop does far less work per call than the primary detector's full
+  # batch, so handing it the same 4 threads is more than the work needs. 0
+  # (the default) means "inherit the primary detector's value"; set explicitly
+  # to hand this session fewer.
+  intra_op_threads: 2
+
   classes: [person]               # which of our own taxonomy's classes get cropped
 
   # MEASURED, not guessed. Swept against 427 person crops from 17 real tracked
@@ -28,43 +41,111 @@ weapons:
   #     0.75   |   0.0%  |   0.0%   | yes (0.792)  <- the deployment default
   #     0.85   |   0.0%  |   0.0%   | NO, lost
   #
-  # 0.75 is the only setting with no false alarms that still catches the
-  # weapon in this sweep, and is what a real border-post deployment should
-  # run. LOWERED FURTHER for a live demo, past what the sweep above actually
-  # measured: a real knife held up live, on a real phone camera at range and
-  # imperfect light, peaked around 0.59 -- below even the 0.65 row, because a
-  # held-up knife at a few metres in bad light is a harder case than the
-  # sweep's 17 MOT16 pedestrian crops. The trend across the measured rows
-  # (4.0% -> 11.8% track FP just from 0.75 -> 0.55) is climbing fast, so the
-  # true cost at 0.45 is very likely worse than 11.8%, not "about the same" --
-  # there is no real data point here, only a still-rising curve. Put this
-  # back to 0.75 before anything but a supervised demo.
-  min_conf: 0.30
+  # 0.75 is the only setting with no false alarms in this sweep, and it is
+  # what a real border-post deployment should run -- and, after TWO separate
+  # live false positives in one session (a backlit window/poster at 0.30,
+  # then a phone held in someone's hand at 0.65), this is now where it sits.
+  #
+  # Why 0.65 was not enough, and why frame-count cannot fix this class of
+  # miss: voting.min_frames_agreed filters a ONE-OFF misread -- noise that
+  # does not repeat the same way twice. A phone held steadily in a hand is
+  # the opposite case: the model reads it as a similar shape on every single
+  # frame it looks at, because the misclassification comes from the crop's
+  # actual pixels, not from noise. Two agreeing frames of the same
+  # consistently-misread object is not two independent pieces of evidence,
+  # it is the same wrong answer twice -- exactly this file's own opening
+  # paragraph ("a phone... occupy about the same pixels as a pistol"). Only
+  # the confidence floor itself -- whether the model's score for THIS crop
+  # clears the bar at all -- can stop that, which is why min_conf is the
+  # lever that moved, not just voting again.
+  #
+  # Stated plainly: this is not a guarantee against every possible false
+  # reading a small, free, offline model can produce -- 0.75 is the zero-FP
+  # point measured against 17 MOT16 pedestrians, not against "a phone held
+  # up to the camera" specifically, which was never in that sweep. If a
+  # phone (or another small handheld object) still misfires at 0.75, the
+  # most reliable mitigation left is procedural for the demo itself: don't
+  # hold a phone in frame during the segment meant to show weapon detection.
+  # DEMO SETTING, chosen deliberately for recall: 0.45 so that a weapon in
+  # frame alerts rather than being rejected. The cost is measured, not
+  # theoretical -- in the same live session that produced the knife numbers
+  # below, people holding NOTHING produced "guns" reads of 0.34, 0.36, 0.43
+  # and 0.639. The real knife read 0.44-0.74. Those ranges overlap, so at
+  # 0.45 false weapon alerts on empty-handed people are expected, and no
+  # threshold can separate them with this model. voting.min_frames_agreed=2
+  # is the only thing still filtering single-frame noise. Put this back to
+  # 0.65 (the reasoning below) or 0.75 for anything but a supervised demo.
+  #
+  # Previous note, kept because the measurements still hold:
+  # 0.65 after a third live measurement, this one of a REAL knife held up to
+  # the phone camera at demo distance: the model saw it on nearly every check
+  # but scored 0.68-0.74 (peak 0.744), so a 0.75 floor rejected all of it --
+  # the model was right and the threshold was wrong. 0.65 is the sweep's
+  # measured row above (1.9% crop FP, 5.9% track FP) and sits below that
+  # whole cluster. What still has to hold the line against the earlier
+  # phone-in-a-hand false positive is voting.min_frames_agreed=3 below: a
+  # misread object now needs three separate checks above 0.65, where that
+  # false alarm only ever had to clear two. If phones/umbrellas start firing
+  # again, raise this to 0.70 before touching anything else -- the knife's
+  # 0.744 and 0.712 reads still clear it, just more slowly.
+  # 0.72, and the margin is 0.04. Measured on this camera: a real knife held
+  # up read 0.68-0.744 (0.744, 0.712 clear this); a person holding a PHONE,
+  # no weapon, read up to 0.707 and raised a confident GUNS alert at 0.65
+  # (snapshot confirmed it). The two distributions overlap almost entirely,
+  # so this threshold does not separate weapon from phone in general -- it
+  # only sits in the gap between the specific numbers seen here. Treat it as
+  # a rehearsed-demo setting, not a property of the system. The durable fix
+  # is to reject a weapon box that overlaps a detected phone (COCO class 67,
+  # which the primary detector already sees and we currently discard).
+  # 0.55 for the recorded knife clip (afzal1-1080.mp4) on CAM-01. Measured
+  # over that clip: 51 sampled frames, peak 0.769, and 8 reads clear 0.55
+  # against only 3 that clear 0.72 -- at 0.72 the alert depends on three
+  # borderline frames landing inside one voting window. The phone-in-hand
+  # false positive that forced 0.72 came from the LIVE bedroom camera, which
+  # is not what this camera is showing now. Put it back to 0.72 (or higher)
+  # before pointing CAM-01 at a live phone again.
+  min_conf: 0.55
   nms_iou: 0.45
 
   # Cost control, same measured reasoning as gestures: ~12 MB YOLOv8n model,
   # comparable per-crop cost to the pose model (~40 ms on the ORT CPU provider).
   # Two crops every third frame keeps this inside the laptop profile's budget.
-  every_n_frames: 3
+  # 1, not 3, for the recorded-clip demo: the knife's high-scoring moments in
+  # afzal1-1080.mp4 last a few tenths of a second (0.748 and 0.756 about 0.4s
+  # apart), and checking only every 3rd analytic frame stepped straight over
+  # them -- offline sampling every 0.2s found 8 reads above 0.55 where the
+  # live pipeline saw none. Affordable here because the GPU sits at ~30% with
+  # one camera; put it back to 3 when running several cameras.
+  every_n_frames: 1
   max_tracks_per_frame: 2
 
-  # Multi-frame voting was MANDATORY at 3 -- a weapon that appears for a
-  # single frame is normally a misread, not an arrest -- but that is exactly
-  # the second half of the wait the demo asked to remove: min_conf alone
-  # still gates every read, this just stops making a track wait for 3 of them
-  # to agree before it counts. 1 is the documented floor vote_weapon() itself
-  # accepts (it raises below that), so this is supported, not a hack -- but
-  # it means one convincingly-misread frame is now enough, stacked on top of
-  # min_conf's own loosened false-positive cost above. Put this back to 3
-  # alongside min_conf's 0.75 outside a supervised demo.
+  # Back to MANDATORY 3, its original production value. It was dropped to 1,
+  # then raised to 2, chasing a live demo's instant-trigger ask -- but two
+  # real false positives later (see min_conf's comment above), the honest
+  # read is that frame-count was never the fix for a consistently-misread
+  # object like a phone. Restored to 3 now that min_conf itself carries the
+  # real weight: at every_n_frames=3 and analytics_fps=6 this settles in
+  # ~1.5s, up from ~1s at 2 -- a real, deliberate cost, accepted because a
+  # demo that shows one confident, correct "WEAPON_VISIBLE" 1.5 seconds in is
+  # worth more than one that shows a wrong one instantly.
   #
   # NOTE: voting is on ARMED / not-armed, NOT on which weapon. Gun-vs-knife
   # plurality would tie and never settle on a person the model keeps
   # reclassifying between the two -- and somebody the model cannot decide is
   # holding a gun or a knife is still, unambiguously, holding something.
   voting:
-    min_frames_agreed: 1
+    min_frames_agreed: 3
     window_frames: 8
+    # Separate from min_frames_agreed above on purpose: that gate controls
+    # whether the ARMED alert fires at all, and stays at 1 for an instant
+    # trigger. This one only controls which weapon TYPE is shown once armed --
+    # at min_frames_agreed=1, two single, differently-classified reads tie and
+    # the label picks whichever narrowly had higher confidence, which is
+    # exactly the "shows guns, then shows knife, then guns again" flicker on
+    # screen. Requiring a class to out-vote the currently-displayed one by
+    # this many frames (within the window above) damps that without slowing
+    # the alert itself down at all -- see WeaponVoter.add() in weapon.py.
+    type_min_frames_agreed: 3
 
   # Cheap "has this crop actually changed" gate in front of the model
   # (activity.py). Comparing 32x32 thumbnails costs microseconds against the

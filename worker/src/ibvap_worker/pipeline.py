@@ -92,6 +92,7 @@ class PipelineStats:
     alerts_suppressed: int = 0
     alerts_merged: int = 0
     last_inference_ms: float = 0.0
+    total_inference_ms: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -701,6 +702,7 @@ class CameraWorker:
                 voter = WeaponVoter(
                     min_frames_agreed=cfg.min_frames_agreed,
                     window_frames=cfg.window_frames,
+                    type_min_frames_agreed=cfg.type_min_frames_agreed,
                 )
                 self._weapon_voters[track.track_id] = voter
 
@@ -1147,11 +1149,16 @@ class Pipeline:
 
         while not self._stop.is_set():
             batch: list[tuple[CameraWorker, Frame, str, Any]] = []
-            deadline = time.monotonic() + max_wait
             try:
                 batch.append(self.frame_queue.get(timeout=0.5))
             except queue.Empty:
                 continue
+            # The window opens when the FIRST frame arrives. Started before
+            # the blocking get() above, it had usually already expired while
+            # the thread sat idle waiting -- so a detector that was keeping up
+            # ran every call at batch 1 and only batched once frames had piled
+            # up, i.e. once it was already falling behind.
+            deadline = time.monotonic() + max_wait
 
             while len(batch) < max_batch and time.monotonic() < deadline:
                 try:
@@ -1214,6 +1221,7 @@ class Pipeline:
         self.stats.batches += 1
         self.stats.inferences += len(batch)
         self.stats.last_inference_ms = elapsed_ms
+        self.stats.total_inference_ms += elapsed_ms
 
         for (worker, frame, profile, _cfg), transform, enhanced, raws in zip(
             batch, transforms, enhancements, raw_batches, strict=True
@@ -1286,7 +1294,33 @@ class Pipeline:
     # -- observability -----------------------------------------------------
 
     def _stats_loop(self) -> None:
+        # `infer=` below is only the LAST call's time -- one sample every
+        # interval, which hides both the average and whether batching works.
+        prev_batches, prev_frames, prev_ms, prev_dropped = 0, 0, 0.0, 0
+        prev_phases: dict[str, float] = {}
         while not self._stop.wait(self._stats_interval):
+            s = self.stats
+            batches = s.batches - prev_batches
+            phases = dict(getattr(self.detector, "phase_ms", {}))
+            if batches:
+                busy_ms = s.total_inference_ms - prev_ms
+                split = " ".join(
+                    f"{k}={(v - prev_phases.get(k, 0.0)) / batches:.0f}ms"
+                    for k, v in phases.items()
+                )
+                logger.info(
+                    "detector batches=%d mean_batch=%.2f mean_call=%.0fms busy=%.0f%% "
+                    "dropped_this_interval=%d %s",
+                    batches,
+                    (s.inferences - prev_frames) / batches,
+                    busy_ms / batches,
+                    busy_ms / (self._stats_interval * 10.0),
+                    self.frame_queue.dropped - prev_dropped,
+                    split,
+                )
+            prev_batches, prev_frames = s.batches, s.inferences
+            prev_ms, prev_dropped = s.total_inference_ms, self.frame_queue.dropped
+            prev_phases = phases
             for worker in self.workers.values():
                 health = worker.health()
                 logger.info(

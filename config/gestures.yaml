@@ -6,6 +6,17 @@ gestures:
   weights: models/pose/yolo11n-pose.onnx
   input_size: [640, 640]
 
+  # NOT the fix for the 400-600ms stalls a live demo run showed -- that was
+  # synchronous evidence writing on the alert path (see __main__.py's
+  # on_alert / evidence_pool, and config/weapons.yaml's matching comment for
+  # the full story). This session already inherited detector.yaml's
+  # intra_op_threads=4 via dataclasses.replace(); the override here is a
+  # smaller, separate saving: a 640x640 pose model on one person crop does
+  # far less work per call than the primary detector's full batch, so the
+  # full 4 threads is more than the work needs. 0 (the default) means
+  # "inherit the primary detector's value".
+  intra_op_threads: 2
+
   classes: [person]               # which of our own taxonomy's classes get cropped
   min_person_conf: 0.40           # pose model's own score for "there is a person here"
   min_keypoint_conf: 0.35         # below this a joint counts as NOT SEEN, never guessed
@@ -23,7 +34,15 @@ gestures:
   # being genuinely held -- which is the point.
   #
   # On CUDA this is ~4x cheaper; raise both if you have the GPU (bop profile).
-  every_n_frames: 3
+  #
+  # 4, not 3: deliberately NOT the same cadence as weapons.yaml's
+  # every_n_frames=3. Two second-stage models on the same phase mean they
+  # fire on the identical frame every time -- their CPU cost stacks instead of
+  # spreading out. Coprime-ish cadences (3 and 4) mean they only coincide
+  # once every 12 frames instead of every 3, cutting how often the worst-case
+  # combined cost actually happens by 4x. Combined with the intra_op_threads
+  # cap above, this is the other half of fixing the measured 400-600ms stalls.
+  every_n_frames: 4
   max_tracks_per_frame: 2
 
   # Multi-frame voting is MANDATORY here for the same reason it is in ANPR: a

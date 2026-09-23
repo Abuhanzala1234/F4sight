@@ -107,14 +107,19 @@ class TestSerialisation:
     def test_summary_is_small_enough_for_a_websocket(self):
         summary = record().summary()
         assert "evidence_doc" not in summary
+        # Must equal the API's AlertSummary fields: the dashboard reads live
+        # pushes and REST rows as the same type, and a live alert without
+        # `id` could not be opened at all.
         assert set(summary) == {
-            "alert_id",
-            "site_code",
-            "camera_code",
+            "id",
+            "site_id",
+            "camera_id",
             "kind",
             "severity",
             "risk_score",
             "reason_codes",
             "ts_utc",
             "status",
+            "adjudication",
+            "ledger_status",
         }

@@ -52,7 +52,13 @@ detector:
   # P3: err high. Different classes deserve different thresholds.
   conf_thresholds:
     person: 0.40
-    vehicle: 0.45
+    # 0.35, not 0.45: measured on real gate footage, a parked car cut off by
+    # the frame edge (with a perfectly legible plate -- RapidOCR read it at
+    # 0.80) scored 0.44-0.45 and flickered in and out, so it was never
+    # tracked and ANPR never saw it. A car is a large, distinctive object;
+    # the false-positive cost that justifies erring high for weapons does not
+    # apply the same way here. Births still need tracker.high_thresh below.
+    vehicle: 0.35
     animal: 0.50
     bag: 0.55
     default: 0.50
@@ -78,3 +84,13 @@ detector:
     24: {cls: bag,     bag_type: backpack}
     26: {cls: bag,     bag_type: handbag}
     28: {cls: bag,     bag_type: suitcase}
+
+# ByteTrack (track.py). A new track is only ever BORN from a detection at or
+# above high_thresh; anything between the class threshold and this can only
+# extend a track that already exists. At the old default of 0.50 a vehicle
+# scoring a steady 0.45 could never get a track at all -- lowered to 0.40 so
+# it can, while 0.35-0.40 vehicle detections still only continue tracks
+# (hysteresis against flicker). Rules keep their own gate in rules.yaml
+# (min_hits, min_track_age_frames, min_track_conf), unchanged.
+tracker:
+  high_thresh: 0.40

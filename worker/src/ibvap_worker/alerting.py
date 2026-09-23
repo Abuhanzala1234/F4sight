@@ -18,6 +18,7 @@ note on ``_write_clip`` for the reasoning and what a post-roll pass would need.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from collections import deque
 from collections.abc import Mapping, Sequence
@@ -40,18 +41,28 @@ class FrameBuffer:
     Bounded by frame count, not seconds, because at 6 fps a 5-second pre-roll is
     30 frames and holding a variable number of 1080p arrays is how a worker's
     RSS surprises you at 3 a.m.
+
+    Locked because ``push`` (the per-camera stage thread, every frame) and
+    ``window`` (the evidence-writer pool, on an alert) now run on different
+    threads -- see ``__main__.py``'s ``on_alert``. A bare ``deque`` mutated by
+    one thread while another iterates it in ``window``'s list comprehension is
+    a `RuntimeError: deque mutated during iteration` waiting to happen the
+    first time a frame arrives mid-clip-write, not a hypothetical.
     """
 
     def __init__(self, max_frames: int = 60) -> None:
         self._frames: deque[Frame] = deque(maxlen=max_frames)
+        self._lock = threading.Lock()
 
     def push(self, frame: Frame) -> None:
-        self._frames.append(frame)
+        with self._lock:
+            self._frames.append(frame)
 
     def window(self, around: datetime, pre_s: float, post_s: float) -> list[Frame]:
         lo = around.timestamp() - pre_s
         hi = around.timestamp() + post_s
-        return [f for f in self._frames if lo <= f.ts_utc.timestamp() <= hi]
+        with self._lock:
+            return [f for f in self._frames if lo <= f.ts_utc.timestamp() <= hi]
 
     def __len__(self) -> int:
         return len(self._frames)

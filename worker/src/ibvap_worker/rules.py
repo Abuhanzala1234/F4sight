@@ -973,6 +973,13 @@ class DebounceConfig:
     #: How much stronger a signal must be to break out of correlation and raise
     #: its own alert instead of being merged into a weaker one.
     escalation_margin: float = 10.0
+    #: Candidates whose primary signal weighs at least this bypass the
+    #: per-minute ceiling (cooldown still applies). The ceiling guards the
+    #: operator against spam; it must never be what swallows the one alert
+    #: that matters. Seen live: a camera whose zones did not fit its scene
+    #: spent its 20/min on tripwire noise, and a WEAPON_VISIBLE (75) arriving
+    #: then would have been dropped with the rest. 60 = the "high" band.
+    rate_limit_exempt_min_weight: float = 60.0
 
     @classmethod
     def from_mapping(cls, cfg: Mapping[str, Any]) -> DebounceConfig:
@@ -983,6 +990,7 @@ class DebounceConfig:
             correlate_window_s=float(block.get("correlate_window_s", 8.0)),
             max_alerts_per_camera_per_min=int(block.get("max_alerts_per_camera_per_min", 6)),
             escalation_margin=float(block.get("escalation_margin", 10.0)),
+            rate_limit_exempt_min_weight=float(block.get("rate_limit_exempt_min_weight", 60.0)),
         )
 
 
@@ -1074,7 +1082,7 @@ class Debouncer:
             if since_first >= self.cfg.escalate_after_s:
                 # Still happening two minutes later. That is not spam, that is
                 # a situation, and it deserves to be raised again, louder.
-                if not self._allow_rate(camera_id, now):
+                if not self._allow_rate(camera_id, now, weight):
                     return self._rate_limited(camera_id)
                 entry.last_emitted = now
                 entry.escalations += 1
@@ -1088,7 +1096,7 @@ class Debouncer:
                 )
 
         # 3. Fresh, or cooldown expired.
-        if not self._allow_rate(camera_id, now):
+        if not self._allow_rate(camera_id, now, weight):
             return self._rate_limited(camera_id)
 
         if entry is None:
@@ -1114,11 +1122,13 @@ class Debouncer:
 
     # -- internals ---------------------------------------------------------
 
-    def _allow_rate(self, camera_id: str, now: datetime) -> bool:
+    def _allow_rate(self, camera_id: str, now: datetime, weight: float = 0.0) -> bool:
         window = self._recent_by_camera[camera_id]
         cutoff = now - timedelta(seconds=60)
         while window and window[0] < cutoff:
             window.popleft()
+        if weight >= self.cfg.rate_limit_exempt_min_weight:
+            return True
         return len(window) < self.cfg.max_alerts_per_camera_per_min
 
     def _rate_limited(self, camera_id: str) -> AlertDecision:

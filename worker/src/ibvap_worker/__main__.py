@@ -23,6 +23,7 @@ import signal
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -417,6 +418,14 @@ def build_pose(cfg: AppConfig) -> tuple[GestureConfig, Any]:
                 detector_cfg,
                 weights=gesture_cfg.weights,
                 input_size=gesture_cfg.input_size,
+                # 0 (gesture_cfg's default) means "inherit the primary
+                # detector's own value" -- only override when gestures.yaml
+                # set one explicitly. See GestureConfig.intra_op_threads.
+                intra_op_threads=(
+                    gesture_cfg.intra_op_threads
+                    if gesture_cfg.intra_op_threads > 0
+                    else detector_cfg.intra_op_threads
+                ),
             ),
             min_person_conf=gesture_cfg.min_person_conf,
         )
@@ -449,6 +458,14 @@ def build_weapon(cfg: AppConfig) -> tuple[WeaponConfig, Any]:
                 detector_cfg,
                 weights=weapon_cfg.weights,
                 input_size=weapon_cfg.input_size,
+                # 0 (weapon_cfg's default) means "inherit the primary
+                # detector's own value" -- only override when weapons.yaml set
+                # one explicitly. See WeaponConfig.intra_op_threads.
+                intra_op_threads=(
+                    weapon_cfg.intra_op_threads
+                    if weapon_cfg.intra_op_threads > 0
+                    else detector_cfg.intra_op_threads
+                ),
             ),
             min_conf=weapon_cfg.min_conf,
             nms_iou=weapon_cfg.nms_iou,
@@ -500,9 +517,7 @@ def build_faces(cfg: AppConfig) -> tuple[FaceConfig, Any, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="ibvap-worker", description="IBVAP analytics worker"
-    )
+    parser = argparse.ArgumentParser(prog="ibvap-worker", description="IBVAP analytics worker")
     parser.add_argument("--config", default="config")
     parser.add_argument("--profile", default=None, help="laptop | bop | edge")
     parser.add_argument("--site", default=None, help="site code, e.g. BOP-03")
@@ -543,9 +558,41 @@ def main(argv: list[str] | None = None) -> int:
         clip_fps=int(cfg.get("evidence.clip_fps", 8)),
     )
 
+    # `pipeline.clip_writer_threads` (config/profiles/laptop.yaml) documented
+    # async clip writing but nothing ever read it -- assembler.build() ran
+    # inline on the per-camera stage thread that also has to keep tracking the
+    # next frame. Confirmed live: a JPEG snapshot + MP4 pre-roll mux + RFC 8785
+    # hash + MinIO PUT, done synchronously, showed up as 400-600ms stalls in
+    # the worker log (vs. an 81ms detection baseline) directly correlated with
+    # WEAPON_VISIBLE alerts firing every few seconds under demo-mode's 4s
+    # cooldown -- every alert froze that camera's live tracking for as long as
+    # the write took. The alert record itself is still built off this thread's
+    # own frame_buffer.window() snapshot (fast, just filtering a small deque);
+    # only the slow parts -- encode, hash, upload -- move to the pool. See
+    # FrameBuffer's new lock in alerting.py for why that's now safe to do from
+    # a second thread.
+    evidence_pool = ThreadPoolExecutor(
+        max_workers=max(1, int(cfg.get("pipeline.clip_writer_threads", 1))),
+        thread_name_prefix="evidence-writer",
+    )
+
     def on_alert(**kwargs: Any) -> None:
-        record = assembler.build(**kwargs)
-        assembler.emit(record)
+        def _assemble_and_emit() -> None:
+            try:
+                record = assembler.build(**kwargs)
+                assembler.emit(record)
+            except Exception:
+                # Never let a snapshot/clip/MinIO failure vanish silently on a
+                # background thread -- the operator must still learn an alert
+                # was lost, not just quietly never see it.
+                camera = kwargs.get("camera")
+                logger.exception(
+                    "camera=%s evidence assembly/emit failed for an alert; "
+                    "it will not reach the dashboard",
+                    camera.code if camera is not None else "?",
+                )
+
+        evidence_pool.submit(_assemble_and_emit)
 
     live_tracks = LiveTrackPublisher(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     health_publisher = HealthPublisher(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
@@ -584,7 +631,16 @@ def main(argv: list[str] | None = None) -> int:
             camera=camera,
             source=source,
             zones=zones,
-            ingest_cfg=IngestConfig.from_mapping(cfg.as_dict(), source),
+            # The camera row's analytics_fps must drive the ingest throttle too.
+            # Speed (FAST_MOVEMENT, the overlay's m/s) and clip buffer sizing
+            # already read camera.analytics_fps; if the throttle read the
+            # profile's number instead, a DB seeded under one profile and run
+            # under another would emit frames at one rate while every speed
+            # was computed at the other -- 2x wrong, silently.
+            ingest_cfg=replace(
+                IngestConfig.from_mapping(cfg.as_dict(), source),
+                analytics_fps=camera.analytics_fps,
+            ),
             evqm_cfg=EVQMConfig.from_mapping(cfg.as_dict()),
             enhance_cfg=EnhanceConfig.from_mapping(cfg.as_dict()),
             tracker_cfg=TrackerConfig.from_mapping(cfg.as_dict()),
@@ -620,6 +676,10 @@ def main(argv: list[str] | None = None) -> int:
         stopping["flag"] = True
         logger.info("shutdown requested; stopping pipeline")
         pipeline.stop()
+        # Let any alert already mid-write finish (bounded: it's a handful of
+        # frames, not the whole queue) rather than truncate a clip or skip a
+        # hash on the way out.
+        evidence_pool.shutdown(wait=True, cancel_futures=False)
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)

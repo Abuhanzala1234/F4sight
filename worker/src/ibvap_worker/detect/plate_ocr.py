@@ -38,6 +38,37 @@ __all__ = ["OnnxPlateReader"]
 PLATE_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 
+def _build_rapidocr(threads: int, det_limit_side_len: int) -> Any:
+    """RapidOCR tuned for plate strips, not documents (see config/anpr.yaml).
+
+    RapidOCR builds its ORT sessions with a bare ``SessionOptions()`` and has
+    no thread setting, so each of its sessions defaults to one thread per core
+    and contends with the primary detector. The only hook is the name its
+    ``utils`` module looks up at construction time, swapped for the duration
+    of this one call and always restored.
+    """
+    from rapidocr_onnxruntime import RapidOCR
+    from rapidocr_onnxruntime import utils as rapid_utils
+
+    original = rapid_utils.SessionOptions
+
+    def capped() -> Any:
+        opts = original()
+        opts.intra_op_num_threads = threads
+        return opts
+
+    rapid_utils.SessionOptions = capped
+    try:
+        return RapidOCR(
+            use_angle_cls=False,
+            det_model_path=None,
+            det_limit_side_len=det_limit_side_len,
+            det_limit_type="min",
+        )
+    finally:
+        rapid_utils.SessionOptions = original
+
+
 class OnnxPlateReader:
     """Localise a plate in a vehicle crop and read it."""
 
@@ -57,6 +88,8 @@ class OnnxPlateReader:
         # seconds on a busy scene.
         self._rapidocr_available = False
         self._tesseract_available = False
+        self._ocr_threads = int(block.get("ocr_threads", 2))
+        self._ocr_det_limit = int(block.get("ocr_det_limit_side_len", 320))
         if self._use_tesseract:
             try:
                 import rapidocr_onnxruntime  # noqa: F401
@@ -64,6 +97,10 @@ class OnnxPlateReader:
                 pass
             else:
                 self._rapidocr_available = True
+                # Built here, at worker startup, not on the first vehicle:
+                # loading three ONNX models lazily used to stall the live
+                # per-camera thread mid-stream the first time a car appeared.
+                self._rapidocr = _build_rapidocr(self._ocr_threads, self._ocr_det_limit)
                 logger.warning(
                     "plate recogniser weights missing at %s; reading plates "
                     "with RapidOCR (pretrained, generic) instead of the "
@@ -168,9 +205,7 @@ class OnnxPlateReader:
 
     def _rapidocr_read(self, region: Any) -> tuple[str, float, list[float]]:
         if self._rapidocr is None:
-            from rapidocr_onnxruntime import RapidOCR
-
-            self._rapidocr = RapidOCR()
+            self._rapidocr = _build_rapidocr(self._ocr_threads, self._ocr_det_limit)
         result, _elapse = self._rapidocr(region)
         if not result:
             return "", 0.0, []

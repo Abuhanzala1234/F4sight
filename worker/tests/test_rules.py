@@ -353,6 +353,42 @@ class TestDebouncer:
         assert decisions.count(Decision.EMIT) == 3
         assert Decision.RATE_LIMITED in decisions
 
+    def test_rate_ceiling_never_drops_a_weapon(self):
+        """A camera already at its ceiling from low-weight noise must still
+        raise a high-weight alert (WEAPON_VISIBLE is 75) -- the ceiling is a
+        spam guard, not a reason to lose the one alert that matters."""
+        d = Debouncer(DebounceConfig(max_alerts_per_camera_per_min=2))
+        for i in range(2):
+            d.submit(
+                camera_id="C1",
+                track_id=i,
+                zone_id="z",
+                rule_code="PERIMETER_APPROACH",
+                now=T0,
+                alert_id=f"n{i}",
+                weight=18.0,
+            )
+        noise = d.submit(
+            camera_id="C1",
+            track_id=7,
+            zone_id="z",
+            rule_code="PERIMETER_APPROACH",
+            now=T0,
+            alert_id="n7",
+            weight=18.0,
+        )
+        weapon = d.submit(
+            camera_id="C1",
+            track_id=8,
+            zone_id=None,
+            rule_code="WEAPON_VISIBLE",
+            now=T0,
+            alert_id="w",
+            weight=75.0,
+        )
+        assert noise.decision is Decision.RATE_LIMITED
+        assert weapon.decision is Decision.EMIT
+
     def test_rate_window_slides(self):
         d = Debouncer(DebounceConfig(max_alerts_per_camera_per_min=2))
         for i in range(2):
