@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Annotated
 
 import yaml
-from ibvap_worker.anpr import plate_hmac, validate_indian_plate
 from fastapi import APIRouter, Depends, HTTPException
+from ibvap_worker.anpr import plate_hmac, validate_indian_plate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
